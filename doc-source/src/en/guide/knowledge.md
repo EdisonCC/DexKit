@@ -1,25 +1,35 @@
-# Basic knowledge
+# Basic Knowledge
 
-You will need some basic knowledge in order to use DexKit more effectively, including but not limited to:
+> Here we provide some basic knowledge to help you better understand the usage of `DexKit`.
+> Experienced developers can skip this section.
 
-- Dex disassembling tools
-- JVM signatures
-    - Primitive type signatures
-    - Reference type signatures
-    - Array type signatures
-    - Method signatures
-    - Field signatures
+When using `DexKit`, there are some fundamental concepts you need to understand, including but not
+limited to:
 
-## Decompilation Tool
+- Dex Decompilation Tools
+- JVM Signatures
+    - Primitive Type Signatures
+    - Reference Type Signatures
+    - Array Type Signatures
+    - Method Signatures
+    - Field Signatures
 
-Usually, [jadx](https://github.com/skylot/jadx) is enough to meet most of the requirements,
-as long as the Java code is restorable to some extent.
+::: warning
+The content in the basic knowledge is not necessarily completely accurate. Please read it according
+to your own understanding. If you find any inaccuracies, feel free to point them out and help
+improve.
+:::
 
-## JVM signature
+## Decompilation Tools
 
-### Primitive type signature
+Usually, you can use [jadx](https://github.com/skylot/jadx) to meet most of your needs.
+It can restore readable Java code in most cases.
 
-| type signature | Primitive type | size (bytes) |
+## JVM Signatures
+
+### Primitive Types (PrimitiveType)
+
+| Type Signature | Primitive Type | Size (Bytes) |
 |:---------------|:---------------|:-------------|
 | V              | void           | -            |
 | Z              | boolean        | 1            |
@@ -31,69 +41,97 @@ as long as the Java code is restorable to some extent.
 | F              | float          | 4            |
 | D              | double         | 8            |
 
-### Reference type signature
+### Reference Types (ReferenceType)
 
-Reference data types include classes, interfaces, arrays, etc.
-The type signature for classes and interfaces is denoted by `L`, followed by the fully qualified name of the class,
-ending with `;`, such as `Ljava/lang/String;`.
+Reference types are divided into classes and arrays.
 
-e.g.
+#### Class (ClassType)
 
-| type signature     | type in java     |
-|:-------------------|:-----------------|
-| Ljava/lang/String; | java.lang.String |
-| Ljava/util/List;   | java.util.List   |
+The type signature of a class starts with `L`, followed by the fully qualified name (FullClassName)
+of the class, and ends with `;`. For example, `Ljava/lang/String;` represents the `java.lang.String`
+class.
 
-### Array type signature
+For example:
 
-Array type signatures begin with `[` and are followed by the type signature of the array elements, for example,
-`[[I` represents a two-dimensional array with elements of type `int`.
+| Type Signature     | Java Type Definition |
+|:-------------------|:---------------------|
+| Ljava/lang/String; | java.lang.String     |
+| Ljava/util/List;   | java.util.List       |
 
-e.g.
+#### Array (ArrayType)
 
-| type signature      | type in java       |
-|:--------------------|:-------------------|
-| [I                  | int[]              |
-| [[C                 | char[][]           |
-| [Ljava/lang/String; | java.lang.String[] |
+The type signature of an array starts with `[`, followed by the type signature of the array
+elements.
+For example, `[[I` represents a two-dimensional array where the element type is `int`.
 
-### Method signature
+For example:
 
-Method signatures are composed of the return type signature and parameter type signatures of the method,
-For example, `()V` represents a `void` method with no parameters.
+| Type Signature      | Java Type Definition |
+|:--------------------|:---------------------|
+| [I                  | int[]                |
+| [[C                 | char[][]             |
+| [Ljava/lang/String; | java.lang.String[]   |
 
-e.g.
-> To make it easier to express, all method names are `function`.
+::: tip
+The term 'class' and 'type' are not entirely equivalent: 'type' is Type, while 'class' is Class.
+'Class' is a subset of 'type'. For example:
 
-| method signature        | method declare in java              |
-|:------------------------|:------------------------------------|
-| ()V                     | void function()                     |
-| (I)V                    | void function(int)                  |
-| (II)V                   | void function(int, int)             |
-| (Ljava/lang/String;)V   | void function(java.lang.String)     |
-| ([I)V                   | void function(int[])                |
-| ([[Ljava/lang/String;)V | void function(java.lang.String[][]) |
+- `java.lang.Integer` is a 'class' and also a 'type'
+- `java.lang.Integer[]` is an 'array type', but not a 'class'
+- `int` is a 'primitive type', but not a 'class'
 
-## Dalvik descriptor
+For method parameters, return types, and field types, we use the term 'type,' specifically 'Type.'
+:::
 
-In dex, specific methods/fields are expressed via the `Dalvik descriptor`.
+### Method Signatures
 
-### Method descriptor
+A method signature consists of the signature of the return type and the signature of the parameter
+types. For example, `()V` represents a parameterless `void` method.
 
-The format of a method description is `[ClassTypeSignature]->[MethodName][MethodSignature]`,
+For example:
+> For ease of description, all methods in the table are named as `function`.
+
+| Method Signature        | Java Method Definition                     |
+|:------------------------|:-------------------------------------------|
+| ()V                     | void function()                            |
+| (I)V                    | void function(int)                         |
+| (II)V                   | void function(int, int)                    |
+| (ILjava/lang/String;J)V | void function(int, java.lang.String, long) |
+| (I[II)V                 | void function(int, int[], int)             |
+| ([[Ljava/lang/String;)V | void function(java.lang.String[][])        |
+| ()[Ljava/lang/String;   | java.lang.String[] function()              |
+
+## Dalvik Descriptor
+
+In a Dex file, we can represent specific classes, methods, or fields using the 'Dalvik Descriptor.'
+In `DexKit` API, the term 'descriptor' is commonly used.
+
+### Class Descriptor
+
+The format of a class descriptor is `[class signature]`, such as `Ljava/lang/String;`.
+
+### Method Descriptor
+
+The format of a method descriptor is `[class signature]->[method name][method signature]`,
 such as `Ljava/lang/String;->length()I`.
 
-> **Note**：
-> In `Dalvik description`, the method name for a constructor is `<init>`,
-> and the method name for a static initialization function is `<clinit>`.
+::: tip
+In 'Dalvik Descriptor,' the method name for constructors is `<init>`, and for static initialization
+methods, it's `<clinit>`. Therefore, in `DexKit`, to find constructors, you need to use `<init>` as
+the method name.
+:::
 
-### Field descriptor
+### Field Descriptor
 
-The format of a field description is `[ClassTypeSignature]->[FieldName]:[TypeSignature]`,
-such as `Ljava/lang/String;->count:I`.
+The format of a field descriptor is `[class signature]->[field name]:[type signature]`, such
+as `Ljava/lang/String;->count:I`.
 
-> **Note**: DexKit query parameters support both the dalvik signature and the original Java version, for example:
->
-> - For className related query parameters, you can use either `Ljava/lang/String;` or `java.lang.String`. But `java/lang/String` will not work.
->
-> - For `fieldType`/`returnType` related query parameters, you can use either `I` or `int`.
+::: tip
+In DexKit, the className/Type query parameter only supports the Java primitive syntax. For example:
+
+- For primitive types, use Java PrimitiveType forms like `void`, `int`, `boolean`.
+- For reference types, use FullClassName forms like `java.lang.String` or `java/lang/String`.
+- For array types, use ArrayTypeName forms like `int[]`, `java.lang.String[][]`
+  or `java/lang/String[][]`.
+
+:::

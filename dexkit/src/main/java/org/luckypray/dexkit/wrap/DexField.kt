@@ -23,44 +23,54 @@
 
 package org.luckypray.dexkit.wrap
 
-import org.luckypray.dexkit.util.DexSignUtil.getSimpleName
+import org.luckypray.dexkit.util.DexSignUtil.getTypeName
 import org.luckypray.dexkit.util.DexSignUtil.getTypeSign
 import org.luckypray.dexkit.util.InstanceUtil
-import java.io.Serializable
 import java.lang.reflect.Field
 
-class DexField: Serializable {
-    private companion object {
-        private const val serialVersionUID = 1L
+class DexField: ISerializable {
+
+    companion object {
+
+        @JvmStatic
+        fun deserialize(descriptor: String) = DexField(descriptor)
     }
 
     val className: String
     val name: String
     val typeName: String
 
+    val declaredClassName get() = className
+
     /**
      * field type sign
      * ----------------
      * 字段类型签名
      */
-    val typeSign get() = getTypeSign(typeName)
+    val typeSign by lazy {
+        getSign()
+    }
+
+    private fun getSign(): String {
+        return getTypeSign(typeName)
+    }
 
     /**
      * Convert field descriptor to [DexField].
      * ----------------
      * 转换字段描述符为 [DexField]。
      *
-     * @param fieldDescriptor field descriptor / 字段描述符
+     * @param descriptor field descriptor / 字段描述符
      */
-    constructor(fieldDescriptor: String) {
-        val idx1 = fieldDescriptor.indexOf("->")
-        val idx2 = fieldDescriptor.indexOf(":")
+    constructor(descriptor: String) {
+        val idx1 = descriptor.indexOf("->")
+        val idx2 = descriptor.indexOf(":", idx1 + 1)
         if (idx1 == -1 || idx2 == -1) {
-            throw IllegalAccessError("not field descriptor: $fieldDescriptor")
+            throw IllegalAccessError("not field descriptor: $descriptor")
         }
-        className = getSimpleName(fieldDescriptor.substring(0, idx1))
-        name = fieldDescriptor.substring(idx1 + 2, idx2)
-        typeName = getSimpleName(fieldDescriptor.substring(idx2 + 1))
+        className = getTypeName(descriptor.substring(0, idx1))
+        name = descriptor.substring(idx1 + 2, idx2)
+        typeName = getTypeName(descriptor.substring(idx2 + 1))
     }
 
     /**
@@ -71,9 +81,9 @@ class DexField: Serializable {
      * @param field field / 字段
      */
     constructor(field: Field) {
-        className = getSimpleName(field.declaringClass)
+        className = getTypeName(field.declaringClass)
         name = field.name
-        typeName = getSimpleName(field.type)
+        typeName = getTypeName(field.type)
     }
 
     /**
@@ -95,7 +105,7 @@ class DexField: Serializable {
             append("->")
             append(name)
             append(":")
-            append(getTypeSign(typeName))
+            append(typeSign)
         }
     }
 

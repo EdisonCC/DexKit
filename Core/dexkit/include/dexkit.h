@@ -27,7 +27,7 @@
 
 #include "flatbuffers/flatbuffers.h"
 #include "file_helper.h"
-#include "error.h"
+#include "dexkit_error.h"
 #include "dex_item.h"
 #include "package_trie.h"
 #include "analyze.h"
@@ -46,6 +46,7 @@ public:
     ~DexKit() = default;
 
     void SetThreadNum(int num);
+    Error InitFullCache();
     Error AddDex(uint8_t *data, size_t size);
     Error AddImage(std::unique_ptr<MemMap> dex_image);
     Error AddImage(std::vector<std::unique_ptr<MemMap>> dex_images);
@@ -75,6 +76,7 @@ public:
     std::unique_ptr<flatbuffers::FlatBufferBuilder> GetCallMethods(int64_t encode_method_id);
     std::unique_ptr<flatbuffers::FlatBufferBuilder> GetInvokeMethods(int64_t encode_method_id);
     std::vector<std::string_view> GetUsingStrings(int64_t encode_method_id);
+    std::unique_ptr<flatbuffers::FlatBufferBuilder> GetUsingFields(int64_t encode_method_id);
     std::unique_ptr<flatbuffers::FlatBufferBuilder> FieldGetMethods(int64_t encode_field_id);
     std::unique_ptr<flatbuffers::FlatBufferBuilder> FieldPutMethods(int64_t encode_field_id);
 

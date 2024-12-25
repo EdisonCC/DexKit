@@ -67,7 +67,7 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
         private set
     var invokeMethodsMatcher: MethodsMatcher? = null
         private set
-    var callMethodsMatcher: MethodsMatcher? = null
+    var callerMethodsMatcher: MethodsMatcher? = null
         private set
 
     constructor()
@@ -138,7 +138,7 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
      * ----------------
      * 方法声明类全限定名。
      *
-     *     declaredClass = "Ljava/lang/String;"
+     *     declaredClass = "java.lang.String"
      */
     var declaredClass: String
         @JvmSynthetic
@@ -154,7 +154,7 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
      * ----------------
      * 方法返回值类型全限定名。
      *
-     *     returnType = "I"
+     *     returnType = "int"
      */
     var returnType: String
         @JvmSynthetic
@@ -298,11 +298,17 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
      *     name("length")
      *
      * @param name method name / 方法名
+     * @param matchType string match type / 字符串匹配类型
+     * @param ignoreCase ignore case / 忽略大小写
      * @return [MethodMatcher]
      */
     @JvmOverloads
-    fun name(name: String, ignoreCase: Boolean = false) = also {
-        this.nameMatcher = StringMatcher(name, StringMatchType.Equals, ignoreCase)
+    fun name(
+        name: String,
+        matchType: StringMatchType = StringMatchType.Equals,
+        ignoreCase: Boolean = false
+    ) = also {
+        this.nameMatcher = StringMatcher(name, matchType, ignoreCase)
     }
 
     /**
@@ -362,7 +368,7 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
      * @return [MethodMatcher]
      */
     fun declaredClass(clazz: Class<*>) = also {
-        this.classMatcher = ClassMatcher().className(DexSignUtil.getSimpleName(clazz))
+        this.classMatcher = ClassMatcher().className(DexSignUtil.getTypeName(clazz))
     }
 
     /**
@@ -389,7 +395,7 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
      * ----------------
      * 方法返回值类型匹配器。
      *
-     *     returnType(ClassMatcher().descriptor("[I"))
+     *     returnType(ClassMatcher().className("int[]"))
      *
      * @param type method return type matcher / 方法返回值类型匹配器
      * @return [MethodMatcher]
@@ -409,7 +415,7 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
      * @return [MethodMatcher]
      */
     fun returnType(clazz: Class<*>) = also {
-        this.returnTypeMatcher = ClassMatcher().className(DexSignUtil.getSimpleName(clazz))
+        this.returnTypeMatcher = ClassMatcher().className(DexSignUtil.getTypeName(clazz))
     }
 
     /**
@@ -420,6 +426,8 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
      *     returnType("int[]")
      *
      * @param typeName method return type / 方法返回值类型
+     * @param matchType string match type / 字符串匹配类型
+     * @param ignoreCase ignore case / 忽略大小写
      * @return [MethodMatcher]
      */
     @JvmOverloads
@@ -438,11 +446,11 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
      *
      *     params(ParametersMatcher().add(ParameterMatcher().type("int[]")))
      *
-     * @param parameters method parameter types matcher / 方法参数类型匹配器
+     * @param params method parameter types matcher / 方法参数类型匹配器
      * @return [MethodMatcher]
      */
-    fun params(parameters: ParametersMatcher) = also {
-        this.paramsMatcher = parameters
+    fun params(params: ParametersMatcher) = also {
+        this.paramsMatcher = params
     }
 
     /**
@@ -460,9 +468,21 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
         this.paramsMatcher = ParametersMatcher().apply {
             params(listOf())
             paramTypes.forEach {
-                val paramMatcher = it?.let { ParameterMatcher().type(it) }
-                add(paramMatcher)
+                add(it?.let { ParameterMatcher().type(it) })
             }
+        }
+    }
+
+    /**
+     * empty parameters overload.
+     * ----------------
+     * 无参数重载.
+     *
+     * @return [MethodMatcher]
+     */
+    fun paramTypes() = also {
+        this.paramsMatcher = ParametersMatcher().apply {
+            params(listOf())
         }
     }
 
@@ -481,8 +501,27 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
         this.paramsMatcher = ParametersMatcher().apply {
             params(listOf())
             paramTypes.forEach {
-                val paramMatcher = it?.let { ParameterMatcher().type(it) }
-                add(paramMatcher)
+                add(it?.let { ParameterMatcher().type(it) })
+            }
+        }
+    }
+
+    /**
+     * The method parameter types class matcher. If set to null,
+     * it means matching any parameter type. The list implies the number of parameters.
+     * ----------------
+     * 方法参数类型类匹配器。如果设置为 null 则表示匹配任意参数类型。列表隐含了参数数量。
+     *
+     *     paramTypes(listOf(null, String::class.java))
+     *
+     * @param paramTypes method parameter types / 方法参数类型
+     * @return [MethodMatcher]
+     */
+    fun paramTypes(vararg paramTypes: Class<*>?) = also {
+        this.paramsMatcher = ParametersMatcher().apply {
+            params(listOf())
+            paramTypes.forEach {
+                add(it?.let { ParameterMatcher().type(it) })
             }
         }
     }
@@ -496,11 +535,46 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
      *     addParamType("java.lang.String")
      *
      * @param paramType method parameter type / 方法参数类型
+     * @param matchType class name match type / 类名字符串匹配类型
+     * @param ignoreCase ignore case / 是否忽略大小写
      * @return [MethodMatcher]
      */
-    fun addParamType(paramType: String?) = also {
+    @JvmOverloads
+    fun addParamType(
+        paramType: String?,
+        matchType: StringMatchType = StringMatchType.Equals,
+        ignoreCase: Boolean = false
+    ) = also {
+        paramsMatcher = paramsMatcher ?: ParametersMatcher()
+        paramsMatcher!!.add(paramType?.let { ParameterMatcher().type(paramType, matchType, ignoreCase) })
+    }
+
+    /**
+     * Add method parameter type class matcher.
+     * ----------------
+     * 添加方法参数类型类匹配器。
+     *
+     *     addParamType(String::class.java)
+     *
+     * @param paramType param type / 参数类型
+     * @return [MethodMatcher]
+     */
+    fun addParamType(paramType: Class<*>?) = also {
         paramsMatcher = paramsMatcher ?: ParametersMatcher()
         paramsMatcher!!.add(paramType?.let { ParameterMatcher().type(paramType) })
+    }
+
+    /**
+     * Add method parameter type class matcher.
+     * ----------------
+     * 添加方法参数类型类匹配器。
+     *
+     * @param type method parameter type class matcher / 方法参数类型类匹配器
+     * @return [MethodMatcher]
+     */
+    fun addParamType(type: ClassMatcher?) = also {
+        paramsMatcher = paramsMatcher ?: ParametersMatcher()
+        paramsMatcher!!.add(type?.let { ParameterMatcher().type(it) })
     }
 
     /**
@@ -758,6 +832,30 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
     }
 
     /**
+     * Using strings matcher(fuzzy match).
+     * ----------------
+     * 使用字符串匹配器(完全匹配)。
+     *
+     * @param usingStrings using string list / 使用字符串列表
+     * @return [MethodMatcher]
+     */
+    fun usingEqStrings(usingStrings: Collection<String>) = also {
+        this.usingStringsMatcher = usingStrings.map { StringMatcher(it, StringMatchType.Equals, false) }.toMutableList()
+    }
+
+    /**
+     * Using strings matcher(fuzzy match).
+     * ----------------
+     * 使用字符串匹配器(完全匹配)。
+     *
+     * @param usingStrings using string list / 使用字符串列表
+     * @return [MethodMatcher]
+     */
+    fun usingEqStrings(vararg usingStrings: String) = also {
+        this.usingStringsMatcher = usingStrings.map { StringMatcher(it, StringMatchType.Equals, false) }.toMutableList()
+    }
+
+    /**
      * Add using string matcher.
      * ----------------
      * 添加使用字符串的匹配器。
@@ -792,6 +890,19 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
     ) = also {
         usingStringsMatcher = usingStringsMatcher ?: mutableListOf()
         usingStringsMatcher!!.add(StringMatcher(usingString, matchType, ignoreCase))
+    }
+
+    /**
+     * Add using string(fuzzy match).
+     * ----------------
+     * 添加使用字符串(完全匹配)。
+     *
+     * @param usingString using string / 使用字符串
+     * @return [MethodMatcher]
+     */
+    fun addEqString(usingString: String) = also {
+        usingStringsMatcher = usingStringsMatcher ?: mutableListOf()
+        usingStringsMatcher!!.add(StringMatcher(usingString, StringMatchType.Equals, false))
     }
 
     /**
@@ -839,7 +950,7 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
     fun addUsingField(usingField: FieldMatcher, usingType: UsingType = UsingType.Any) = also {
         usingFieldsMatcher = usingFieldsMatcher ?: mutableListOf()
         usingFieldsMatcher!!.add(UsingFieldMatcher().apply {
-            matcher(usingField)
+            field(usingField)
             usingType(usingType)
         })
     }
@@ -859,7 +970,7 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
     fun addUsingField(fieldDescriptor: String, usingType: UsingType = UsingType.Any) = also {
         usingFieldsMatcher = usingFieldsMatcher ?: mutableListOf()
         usingFieldsMatcher!!.add(UsingFieldMatcher().apply {
-            matcher(FieldMatcher(fieldDescriptor))
+            field(FieldMatcher(fieldDescriptor))
             usingType(usingType)
         })
     }
@@ -925,9 +1036,9 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
     }
 
     /**
-     * The method invoke methods matcher.
+     * This method calls the matcher for the specified methods set.
      * ----------------
-     * 方法调用方法匹配器。
+     * 本方法调用了指定方法集合的匹配器。
      *
      *     invokeMethods(MethodsMatcher().add(MethodMatcher().name("length")))
      *
@@ -939,9 +1050,9 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
     }
 
     /**
-     * Add method invoke method matcher.
+     * This method calls the matcher for the specified method.
      * ----------------
-     * 添加方法调用方法匹配器。
+     * 本方法调用了指定方法的匹配器。
      *
      *     addInvoke(MethodMatcher().name("length"))
      *
@@ -954,9 +1065,9 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
     }
 
     /**
-     * Add method invoke method matcher.
+     * Add a matcher that calls the method corresponding to the descriptor.
      * ----------------
-     * 添加方法调用方法的匹配器。
+     * 本方法调用了指定方法的匹配器。
      *
      *     addInvoke("Ljava/lang/String;->length()I")
      *
@@ -968,48 +1079,74 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
         invokeMethodsMatcher!!.add(MethodMatcher(methodDescriptor))
     }
 
-    /**
-     * This method caller methods matcher.
-     * ----------------
-     * 该方法调用方法的匹配器。
-     *
-     *     callMethods(MethodsMatcher().add(MethodMatcher().name("length")))
-     *
-     * @param callMethods call methods matcher / 方法调用方法匹配器
-     * @return [MethodMatcher]
-     */
+    @Deprecated(
+        message = "To avoid ambiguity, please use callerMethods",
+        replaceWith = ReplaceWith("callerMethods(callMethods)")
+    )
     fun callMethods(callMethods: MethodsMatcher) = also {
-        this.callMethodsMatcher = callMethods
+        this.callerMethodsMatcher = callMethods
+    }
+
+    @Deprecated(
+        message = "To avoid ambiguity, please use addCaller",
+        replaceWith = ReplaceWith("addCaller(callMethod)")
+    )
+    fun addCall(callMethod: MethodMatcher) = also {
+        callerMethodsMatcher = callerMethodsMatcher ?: MethodsMatcher()
+        callerMethodsMatcher!!.add(callMethod)
+    }
+
+    @Deprecated(
+        message = "To avoid ambiguity, please use addCaller",
+        replaceWith = ReplaceWith("addCaller(methodDescriptor)")
+    )
+    fun addCall(methodDescriptor: String) = also {
+        callerMethodsMatcher = callerMethodsMatcher ?: MethodsMatcher()
+        callerMethodsMatcher!!.add(MethodMatcher(methodDescriptor))
     }
 
     /**
-     * Add method caller method matcher.
+     * The matcher for when this method is called by the specified set of methods.
      * ----------------
-     * 添加方法调用方法匹配器。
+     * 本方法被指定方法集合调用的匹配器。
      *
-     *     addCall(MethodMatcher().name("length"))
+     *     callerMethods(MethodsMatcher().add(MethodMatcher().name("length")))
      *
-     * @param callMethod call method matcher / 方法调用方法匹配器
+     * @param callerMethods call methods matcher / 方法调用方法匹配器
      * @return [MethodMatcher]
      */
-    fun addCall(callMethod: MethodMatcher) = also {
-        callMethodsMatcher = callMethodsMatcher ?: MethodsMatcher()
-        callMethodsMatcher!!.add(callMethod)
+    fun callerMethods(callerMethods: MethodsMatcher) = also {
+        this.callerMethodsMatcher = callerMethods
     }
 
     /**
-     * Add method caller method matcher.
+     * Adds a matcher for when this method is called by a specified method.
      * ----------------
-     * 添加方法调用方法的匹配器。
+     * 添加本方法被指定方法调用的匹配器。
      *
-     *     addCall("Ljava/lang/String;->length()I")
+     *     addCaller(MethodMatcher().name("length"))
+     *
+     * @param callerMethod call method matcher / 方法调用方法匹配器
+     * @return [MethodMatcher]
+     */
+    fun addCaller(callerMethod: MethodMatcher) = also {
+        callerMethodsMatcher = callerMethodsMatcher ?: MethodsMatcher()
+        callerMethodsMatcher!!.add(callerMethod)
+    }
+
+    /**
+     * Adds a matcher for when this method is called by a specified method.
+     * ----------------
+     * 添加本方法被指定方法调用的匹配器。
+     *
+     *     addCaller("Ljava/lang/String;->length()I")
      *
      * @param methodDescriptor call method descriptor / 方法调用方法的描述符
      * @return [MethodMatcher]
      */
-    fun addCall(methodDescriptor: String) = also {
-        callMethodsMatcher = callMethodsMatcher ?: MethodsMatcher()
-        callMethodsMatcher!!.add(MethodMatcher(methodDescriptor))
+    fun addCaller(methodDescriptor: String) = also {
+        callerMethodsMatcher = callerMethodsMatcher ?: MethodsMatcher()
+        callerMethodsMatcher!!.add(MethodMatcher(methodDescriptor))
     }
 
     // region DSL
@@ -1036,6 +1173,11 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
     @kotlin.internal.InlineOnly
     inline fun params(init: ParametersMatcher.() -> Unit) = also {
         params(ParametersMatcher().apply(init))
+    }
+
+    @kotlin.internal.InlineOnly
+    inline fun addParamType(init: ClassMatcher.() -> Unit) = also {
+        addParamType(ClassMatcher().apply(init))
     }
 
     /**
@@ -1105,6 +1247,10 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
     /**
      * @see callMethods
      */
+    @Deprecated(
+        message = "To avoid ambiguity, please use callerMethods",
+        replaceWith = ReplaceWith("callerMethods { init() }")
+    )
     @kotlin.internal.InlineOnly
     inline fun callMethods(init: MethodsMatcher.() -> Unit) = also {
         callMethods(MethodsMatcher().apply(init))
@@ -1113,9 +1259,29 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
     /**
      * @see addCall
      */
+    @Deprecated(
+        message = "To avoid ambiguity, please use addCaller",
+        replaceWith = ReplaceWith("addCaller { init() }")
+    )
     @kotlin.internal.InlineOnly
     inline fun addCall(init: MethodMatcher.() -> Unit) = also {
         addCall(MethodMatcher().apply(init))
+    }
+
+    /**
+     * @see callerMethods
+     */
+    @kotlin.internal.InlineOnly
+    inline fun callerMethods(init: MethodsMatcher.() -> Unit) = also {
+        callerMethods(MethodsMatcher().apply(init))
+    }
+
+    /**
+     * @see addCaller
+     */
+    @kotlin.internal.InlineOnly
+    inline fun addCaller(init: MethodMatcher.() -> Unit) = also {
+        addCaller(MethodMatcher().apply(init))
     }
 
     // endregion
@@ -1157,7 +1323,7 @@ class MethodMatcher : BaseQuery, IAnnotationEncodeValue {
             usingNumbersMatcher?.map { (it.value as BaseQuery).build(fbb) }?.toIntArray()
                 ?.let { InnerMethodMatcher.createUsingNumbersVector(fbb, it) } ?: 0,
             invokeMethodsMatcher?.build(fbb) ?: 0,
-            callMethodsMatcher?.build(fbb) ?: 0
+            callerMethodsMatcher?.build(fbb) ?: 0
         )
         fbb.finish(root)
         return root

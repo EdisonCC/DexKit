@@ -83,6 +83,30 @@ public:
 
 };
 
+// NOLINTNEXTLINE
+static std::vector<uint32_t> GetAnnotationUsingStrings(const ir::Annotation *annotation) {
+    if (annotation == nullptr) return {};
+    std::vector<uint32_t> result;
+    for (auto element: annotation->elements) {
+        if (element->value->type == dex::kEncodedString) {
+            result.push_back(element->value->u.string_value->orig_index);
+        } else if (element->value->type == dex::kEncodedAnnotation) {
+            auto sub_result = GetAnnotationUsingStrings(element->value->u.annotation_value);
+            result.insert(result.end(), sub_result.begin(), sub_result.end());
+        } else if (element->value->type == dex::kEncodedArray) {
+            for (auto sub_value: element->value->u.array_value->values) {
+                if (sub_value->type == dex::kEncodedString) {
+                    result.push_back(sub_value->u.string_value->orig_index);
+                } else if (sub_value->type == dex::kEncodedAnnotation) {
+                    auto sub_result = GetAnnotationUsingStrings(sub_value->u.annotation_value);
+                    result.insert(result.end(), sub_result.begin(), sub_result.end());
+                }
+            }
+        }
+    }
+    return result;
+}
+
 void ConvertSimilarRegex(std::string_view &str, schema::StringMatchType &type) {
     if (type == schema::StringMatchType::SimilarRegex) {
         type = schema::StringMatchType::Contains;
@@ -180,8 +204,8 @@ bool DexItem::IsAnnotationMatched(const ir::Annotation *annotation, const schema
     if (!IsClassMatched(annotation->type->orig_index, matcher->type())) {
         return false;
     }
-    auto m_class_annotations = this->class_annotations[annotation->type->orig_index];
     if (matcher->target_element_types() || (uint8_t) matcher->policy()) {
+        auto m_class_annotations = this->class_annotations[annotation->type->orig_index];
         if (m_class_annotations == nullptr) {
             return false;
         }
@@ -229,6 +253,79 @@ bool DexItem::IsAnnotationMatched(const ir::Annotation *annotation, const schema
         }
     }
     if (!IsAnnotationElementsMatched(annotation->elements, matcher->elements())) {
+        return false;
+    }
+    if (!IsAnnotationUsingStringsMatched(annotation, matcher)) {
+        return false;
+    }
+    return true;
+}
+
+bool DexItem::IsAnnotationUsingStringsMatched(const ir::Annotation *annotation, const schema::AnnotationMatcher *matcher) {
+    if (matcher->using_strings() == nullptr) {
+        return true;
+    }
+
+    typedef acdat::AhoCorasickDoubleArrayTrie<std::string_view> AcTrie;
+    typedef phmap::flat_hash_map<std::string_view, schema::StringMatchType> MatchTypeMap;
+    typedef std::set<std::string_view> StringSet;
+    std::shared_ptr<AcTrie> acTrie;
+    std::shared_ptr<MatchTypeMap> match_type_map;
+    std::shared_ptr<StringSet> real_keywords;
+
+    typedef std::tuple<std::shared_ptr<AcTrie>, std::shared_ptr<MatchTypeMap>, std::shared_ptr<StringSet>> KeywordsTuple;
+    std::vector<std::pair<std::string_view, bool>> keywords;
+    auto ptr = ThreadVariable::GetThreadVariable<KeywordsTuple>(POINT_CASE(matcher->using_strings()));
+    if (ptr == nullptr) {
+        auto trie = std::make_shared<AcTrie>();
+        auto map = std::make_shared<MatchTypeMap>();
+        auto result = BuildBatchFindKeywordsMap(matcher->using_strings(), keywords, *map);
+        auto string_set = std::make_shared<StringSet>(result);
+        acdat::Builder<std::string_view>().Build(keywords, trie.get());
+        auto tuple = std::make_tuple(trie, map, string_set);
+        ptr = ThreadVariable::SetThreadVariable<KeywordsTuple>(POINT_CASE(matcher->using_strings()), tuple);
+    }
+
+    acTrie = std::get<0>(*ptr);
+    match_type_map = std::get<1>(*ptr);
+    real_keywords = std::get<2>(*ptr);
+
+    auto using_empty_string_count = 0;
+    std::set<std::string_view> search_set;
+    auto using_strings = GetAnnotationUsingStrings(annotation);
+    for (auto idx: using_strings) {
+        if (idx == this->empty_string_id) ++using_empty_string_count;
+        auto str = this->strings[idx];
+        auto hits = acTrie->ParseText(str);
+        for (auto &hit: hits) {
+            auto match_type = match_type_map->find(hit.value)->second;
+            bool match;
+            switch (match_type) {
+                case schema::StringMatchType::Contains: match = true; break;
+                case schema::StringMatchType::StartWith: match = (hit.begin == 0); break;
+                case schema::StringMatchType::EndWith: match = (hit.end == str.size()); break;
+                case schema::StringMatchType::Equal: match = (hit.begin == 0 && hit.end == str.size()); break;
+                case schema::StringMatchType::SimilarRegex: abort();
+            }
+            if (match) {
+                search_set.insert(hit.value);
+            }
+        }
+    }
+    if (match_type_map->contains("")) {
+        DEXKIT_CHECK((*match_type_map)[""] == schema::StringMatchType::Equal);
+        if (using_empty_string_count) {
+            search_set.insert("");
+        }
+    }
+    if (search_set.size() < real_keywords->size()) {
+        return false;
+    }
+    std::vector<std::string_view> unique_vec;
+    std::set_intersection(search_set.begin(), search_set.end(),
+                          real_keywords->begin(), real_keywords->end(),
+                          std::inserter(unique_vec, unique_vec.begin()));
+    if (unique_vec.size() != real_keywords->size()) {
         return false;
     }
     return true;
@@ -863,11 +960,16 @@ bool DexItem::IsParametersMatched(uint32_t method_idx, const schema::ParametersM
         }
         for (size_t i = 0; i < type_list_size; ++i) {
             auto parameter_matcher = matcher->parameters()->Get(i);
+            DEXKIT_CHECK(parameter_matcher);
             if (!IsClassMatched(type_list->list[i].type_idx, parameter_matcher->parameter_type())) {
                 return false;
             }
             if (parameter_matcher->annotations()) {
-                if (!IsAnnotationsMatched(this->method_parameter_annotations[method_idx][i], parameter_matcher->annotations())) {
+                auto &method_parameter_annotation = this->method_parameter_annotations[method_idx];
+                if (method_parameter_annotation.size() <= i) {
+                    return false;
+                }
+                if (!IsAnnotationsMatched(method_parameter_annotation[i], parameter_matcher->annotations())) {
                     return false;
                 }
             }
@@ -1045,7 +1147,7 @@ bool DexItem::IsUsingNumbersMatched(uint32_t method_idx, const schema::MethodMat
     if (matcher->using_numbers() == nullptr) {
         return true;
     }
-    auto using_numbers = this->GetUsingNumberFromCode(method_idx);
+    auto using_numbers = this->GetUsingNumbersFromCode(method_idx);
     if (matcher->using_numbers()->size() > using_numbers.size()) {
         return false;
     }

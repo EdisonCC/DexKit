@@ -19,15 +19,14 @@
  * <https://www.gnu.org/licenses/>.
  * <https://github.com/LuckyPray/DexKit/blob/master/LICENSE>.
  */
-@file:Suppress("MemberVisibilityCanBePrivate", "unused")
+@file:Suppress("MemberVisibilityCanBePrivate", "unused", "INVISIBLE_REFERENCE", "INVISIBLE_MEMBER")
 
 package org.luckypray.dexkit.result
 
 import org.luckypray.dexkit.DexKitBridge
 import org.luckypray.dexkit.InnerClassMeta
-import org.luckypray.dexkit.query.ClassDataList
-import org.luckypray.dexkit.query.FieldDataList
-import org.luckypray.dexkit.query.MethodDataList
+import org.luckypray.dexkit.query.FindField
+import org.luckypray.dexkit.query.FindMethod
 import org.luckypray.dexkit.result.base.BaseData
 import org.luckypray.dexkit.util.InstanceUtil
 import org.luckypray.dexkit.wrap.DexClass
@@ -35,16 +34,16 @@ import java.lang.reflect.Modifier
 
 class ClassData private constructor(
     bridge: DexKitBridge,
-    val id: Int,
-    val dexId: Int,
+    id: Int,
+    dexId: Int,
     val sourceFile: String,
     val modifiers: Int,
     val descriptor: String,
-    val superClassId: Int?,
-    val interfaceIds: List<Int>,
-    val methodIds: List<Int>,
-    val fieldIds: List<Int>,
-): BaseData(bridge) {
+    private val superClassId: Int?,
+    private val interfaceIds: List<Int>,
+    private val methodIds: List<Int>,
+    private val fieldIds: List<Int>,
+): BaseData(bridge, id, dexId) {
 
     internal companion object `-Companion` {
         fun from(bridge: DexKitBridge, classMeta: InnerClassMeta) = ClassData(
@@ -87,13 +86,25 @@ class ClassData private constructor(
     val name get() = dexClass.typeName
 
     /**
+     * Simple class name
+     * ----------------
+     * 简单类名
+     *
+     *     e.g. String
+     */
+    val simpleName get() = dexClass.simpleName
+
+    val isArray get() = dexClass.isArray
+
+    /**
      * Get super's [ClassData], if super class not defined in dex, return null
      * ----------------
      * 获取父类的 [ClassData]，如果父类未在 dex 中定义，返回 null
      */
-    fun getSuperClass(): ClassData? {
-        superClassId ?: return null
-        return bridge.getTypeByIds(longArrayOf(getEncodeId(dexId, superClassId))).firstOrNull()
+    val superClass: ClassData? by lazy {
+        superClassId?.let {
+            bridge.getTypeByIds(longArrayOf(getEncodeId(dexId, it))).firstOrNull()
+        }
     }
 
     /**
@@ -101,8 +112,8 @@ class ClassData private constructor(
      * ----------------
      * 获取实现接口列表
      */
-    fun getInterfaces(): ClassDataList {
-        return bridge.getTypeByIds(interfaceIds.map { getEncodeId(dexId, it) }.toLongArray())
+    val interfaces: ClassDataList by lazy {
+        bridge.getTypeByIds(interfaceIds.map { getEncodeId(dexId, it) }.toLongArray())
     }
 
     /**
@@ -110,17 +121,15 @@ class ClassData private constructor(
      * ----------------
      * 获取实现接口的数量
      */
-    fun getInterfaceCount(): Int {
-        return interfaceIds.size
-    }
+    val interfaceCount: Int get() = interfaceIds.size
 
     /**
      * Get declared methods (include static block: `<clinit>`, and constructor: `<init>`)
      * ----------------
      * 获取定义的方法列表（包含 静态代码块: `<clinit>`，以及构造函数: `<init>`）
      */
-    fun getMethods(): MethodDataList {
-        return bridge.getMethodByIds(methodIds.map { getEncodeId(dexId, it) }.toLongArray())
+    val methods: MethodDataList by lazy {
+        bridge.getMethodByIds(methodIds.map { getEncodeId(dexId, it) }.toLongArray())
     }
 
     /**
@@ -128,17 +137,15 @@ class ClassData private constructor(
      * ----------------
      * 获取定义的方法数量
      */
-    fun getMethodCount(): Int {
-        return methodIds.size
-    }
+    val methodCount: Int get() = methodIds.size
 
     /**
      * Get declared fields
      * ----------------
      * 获取定义的字段列表
      */
-    fun getFields(): FieldDataList {
-        return bridge.getFieldByIds(fieldIds.map { getEncodeId(dexId, it) }.toLongArray())
+    val fields: FieldDataList by lazy {
+        bridge.getFieldByIds(fieldIds.map { getEncodeId(dexId, it) }.toLongArray())
     }
 
     /**
@@ -146,17 +153,15 @@ class ClassData private constructor(
      * ----------------
      * 获取定义的字段数量
      */
-    fun getFieldCount(): Int {
-        return fieldIds.size
-    }
+    val fieldCount: Int get() = fieldIds.size
 
     /**
      * Get declared annotations.
      * ----------------
      * 获取标注的注解列表。
      */
-    fun getAnnotations(): List<AnnotationData> {
-        return bridge.getClassAnnotations(getEncodeId(dexId, id))
+    val annotations: List<AnnotationData> by lazy {
+        bridge.getClassAnnotations(getEncodeId(dexId, id))
     }
 
     /**
@@ -180,7 +185,7 @@ class ClassData private constructor(
      */
     @Throws(ClassNotFoundException::class)
     fun getSuperClassInstance(classLoader: ClassLoader): Class<*>? {
-        return getSuperClass()?.getInstance(classLoader)
+        return superClass?.getInstance(classLoader)
     }
 
     /**
@@ -193,7 +198,7 @@ class ClassData private constructor(
      */
     @Throws(ClassNotFoundException::class)
     fun getInterfaceInstances(classLoader: ClassLoader): List<Class<*>> {
-        return getInterfaces().map { InstanceUtil.getClassInstance(classLoader, it.name) }
+        return interfaces.map { InstanceUtil.getClassInstance(classLoader, it.name) }
     }
 
     /**
@@ -207,19 +212,65 @@ class ClassData private constructor(
         return dexClass
     }
 
+    // region DexKit Search
+
+    /**
+     * Search in this class with multiple conditions.
+     * ----------------
+     * 在本类中进行多条件方法搜索。
+     *
+     * @param [findMethod] query object / 查询对象
+     * @return [MethodDataList]
+     */
+    fun findMethod(findMethod: FindMethod): MethodDataList {
+        findMethod.searchInClass(listOf(this))
+        return bridge.findMethod(findMethod)
+    }
+
+    /**
+     * @see findMethod
+     */
+    @kotlin.internal.InlineOnly
+    inline fun findMethod(init: FindMethod.() -> Unit): MethodDataList {
+        return findMethod(FindMethod().apply(init))
+    }
+
+    /**
+     * Search in this class with multiple conditions.
+     * ----------------
+     * 在本类中进行多条件字段搜索。
+     *
+     * @param [findField] query object / 查询对象
+     * @return [FieldDataList]
+     */
+    fun findField(findField: FindField): FieldDataList {
+        findField.searchInClass(listOf(this))
+        return bridge.findField(findField)
+    }
+
+    /**
+     * @see findField
+     */
+    @kotlin.internal.InlineOnly
+    inline fun findField(init: FindField.() -> Unit): FieldDataList {
+        return findField(FindField().apply(init))
+    }
+
+    // endregion
+
     override fun toString(): String {
         return buildString {
             if (modifiers > 0) {
                 append("${Modifier.toString(modifiers)} ")
             }
             append("class $name")
-            getSuperClass()?.let {
+            superClass?.let {
                 append(" extends ")
                 append(it.name)
             }
-            if (getInterfaces().size > 0) {
+            if (interfaceCount > 0) {
                 append(" implements ")
-                append(getInterfaces().joinToString(", ") { it.name })
+                append(interfaces.joinToString(", ") { it.name })
             }
         }
     }

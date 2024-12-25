@@ -172,11 +172,11 @@ class BatchFindMethodUsingStrings : BaseQuery() {
      * ----------------
      * 查找所有使用指定字符串的方法。
      *
-     * @param matchers string matchers group / 字符串匹配器分组
+     * @param groups string matchers group / 字符串匹配器分组
      * @return [BatchFindMethodUsingStrings]
      */
-    fun matchers(matchers: Collection<StringMatchersGroup>) = also {
-        this.searchGroups = matchers.toMutableList()
+    fun groups(groups: Collection<StringMatchersGroup>) = also {
+        this.searchGroups = groups.toMutableList()
     }
 
     /**
@@ -196,7 +196,7 @@ class BatchFindMethodUsingStrings : BaseQuery() {
      * @return [BatchFindMethodUsingStrings]
      */
     @JvmOverloads
-    fun matchers(
+    fun groups(
         keywordsMap: Map<String, Collection<String>>,
         matchType: StringMatchType = StringMatchType.Contains,
         ignoreCase: Boolean = false
@@ -243,8 +243,8 @@ class BatchFindMethodUsingStrings : BaseQuery() {
     // region DSL
 
     @kotlin.internal.InlineOnly
-    inline fun matchers(init: StringMatchersGroupList.() -> Unit) = also {
-        matchers(StringMatchersGroupList().apply(init))
+    inline fun groups(init: StringMatchersGroupList.() -> Unit) = also {
+        groups(StringMatchersGroupList().apply(init))
     }
 
     @kotlin.internal.InlineOnly
@@ -279,9 +279,9 @@ class BatchFindMethodUsingStrings : BaseQuery() {
             excludePackages?.map { fbb.createString(it) }?.toIntArray()
                 ?.let { fbb.createVectorOfTables(it) } ?: 0,
             ignorePackagesCase,
-            searchClasses?.map { getEncodeId(it.dexId, it.id) }?.toLongArray()
+            searchClasses?.map { it.getEncodeId() }?.toLongArray()
                 ?.let { InnerBatchFindMethodUsingStrings.createInClassesVector(fbb, it) } ?: 0,
-            searchMethods?.map { getEncodeId(it.dexId, it.id) }?.toLongArray()
+            searchMethods?.map { it.getEncodeId() }?.toLongArray()
                 ?.let { InnerBatchFindMethodUsingStrings.createInMethodsVector(fbb, it) } ?: 0,
             fbb.createVectorOfTables(searchGroups!!.map { it.build(fbb) }.toIntArray())
         )

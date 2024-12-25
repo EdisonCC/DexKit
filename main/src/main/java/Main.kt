@@ -1,11 +1,9 @@
 import org.luckypray.dexkit.DexKitBridge
 import java.io.File
-import java.util.Locale
 
-val isWindows
-    get() = System.getProperty("os.name")
-        .lowercase(Locale.getDefault())
-        .contains("windows")
+val isWindows = System.getProperty("os.name")
+    .lowercase()
+    .contains("windows")
 
 @Suppress("UnsafeDynamicallyLoadedCode")
 fun loadLibrary(name: String) {
@@ -35,7 +33,7 @@ fun main() {
 fun doSearch(path: String) {
     val createTime = System.currentTimeMillis()
     var releaseTime = 0L
-    DexKitBridge.create(path)?.use { bridge ->
+    DexKitBridge.create(path).use { bridge ->
         println("create use time: ${System.currentTimeMillis() - createTime}ms")
         val startTime = System.currentTimeMillis()
         search(bridge)
@@ -46,7 +44,7 @@ fun doSearch(path: String) {
 }
 
 fun search(bridge: DexKitBridge) {
-
+    // TODO your search code
 }
 
 

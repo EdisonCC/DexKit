@@ -182,15 +182,17 @@ class FieldMatcher : BaseQuery, IAnnotationEncodeValue {
      *     name("mText")
      *
      * @param name field name / 字段名称
+     * @param matchType match type / 字符串匹配类型
      * @param ignoreCase ignore case / 忽略大小写
      * @return [FieldMatcher]
      */
     @JvmOverloads
     fun name(
         name: String,
+        matchType: StringMatchType = StringMatchType.Equals,
         ignoreCase: Boolean = false
     ) = also {
-        this.nameMatcher = StringMatcher(name, StringMatchType.Equals, ignoreCase)
+        this.nameMatcher = StringMatcher(name, matchType, ignoreCase)
     }
 
     /**
@@ -251,7 +253,7 @@ class FieldMatcher : BaseQuery, IAnnotationEncodeValue {
      * @return [FieldMatcher]
      */
     fun declaredClass(clazz: Class<*>) = also {
-        this.classMatcher = ClassMatcher().className(DexSignUtil.getSimpleName(clazz))
+        this.classMatcher = ClassMatcher().className(DexSignUtil.getTypeName(clazz))
     }
 
     /**
@@ -298,7 +300,7 @@ class FieldMatcher : BaseQuery, IAnnotationEncodeValue {
      * @return [FieldMatcher]
      */
     fun type(clazz: Class<*>) = also {
-        this.typeMatcher = ClassMatcher().className(DexSignUtil.getSimpleName(clazz))
+        this.typeMatcher = ClassMatcher().className(DexSignUtil.getTypeName(clazz))
     }
 
     /**
@@ -415,13 +417,13 @@ class FieldMatcher : BaseQuery, IAnnotationEncodeValue {
      * ----------------
      * 读取该字段值的方法匹配器。
      *
-     *     getMethods(MethodsMatcher().add(MethodMatcher().name("getText")))
+     *     readMethods(MethodsMatcher().add(MethodMatcher().name("getText")))
      *
-     * @param getMethods methods matcher / 方法匹配器
+     * @param readMethods methods matcher / 方法匹配器
      * @return [FieldMatcher]
      */
-    fun getMethods(getMethods: MethodsMatcher) = also {
-        this.getMethodsMatcher = getMethods
+    fun readMethods(readMethods: MethodsMatcher) = also {
+        this.getMethodsMatcher = readMethods
     }
 
     /**
@@ -429,27 +431,27 @@ class FieldMatcher : BaseQuery, IAnnotationEncodeValue {
      * ----------------
      * 添加读取该字段值的方法匹配器。
      *
-     *     addGetMethod(MethodMatcher().name("getText"))
+     *     addReadMethod(MethodMatcher().name("getText"))
      *
-     * @param getMethod method matcher / 方法匹配器
+     * @param readMethod method matcher / 方法匹配器
      * @return [FieldMatcher]
      */
-    fun addGetMethod(getMethod: MethodMatcher) = also {
+    fun addReadMethod(readMethod: MethodMatcher) = also {
         this.getMethodsMatcher = getMethodsMatcher ?: MethodsMatcher()
-        this.getMethodsMatcher!!.add(getMethod)
+        this.getMethodsMatcher!!.add(readMethod)
     }
 
     /**
-     * Read this field value's methods matcher.
+     * Add read this field value's method matcher.
      * ----------------
-     * 读取该字段值的方法匹配器。
+     * 添加读取该字段值的方法匹配器。
      *
-     *     getMethods("Landroid/widget/TextView;->getText()Ljava/lang/CharSequence;")
+     *     addReadMethod(MethodMatcher().name("getText"))
      *
      * @param methodDescriptor method descriptor / 方法描述符
      * @return [FieldMatcher]
      */
-    fun addGetMethod(methodDescriptor: String) = also {
+    fun addReadMethod(methodDescriptor: String) = also {
         this.getMethodsMatcher = getMethodsMatcher ?: MethodsMatcher()
         this.getMethodsMatcher!!.add(MethodMatcher(methodDescriptor))
     }
@@ -459,13 +461,13 @@ class FieldMatcher : BaseQuery, IAnnotationEncodeValue {
      * ----------------
      * 写入该字段值的方法匹配器。
      *
-     *     putMethods(MethodsMatcher().add(MethodMatcher().name("setText")))
+     *     writeMethods(MethodsMatcher().add(MethodMatcher().name("setText")))
      *
-     * @param putMethods methods matcher / 方法匹配器
+     * @param writeMethods methods matcher / 方法匹配器
      * @return [FieldMatcher]
      */
-    fun putMethods(putMethods: MethodsMatcher) = also {
-        this.putMethodsMatcher = putMethods
+    fun writeMethods(writeMethods: MethodsMatcher) = also {
+        this.putMethodsMatcher = writeMethods
     }
 
     /**
@@ -473,14 +475,14 @@ class FieldMatcher : BaseQuery, IAnnotationEncodeValue {
      * ----------------
      * 添加写入该字段值的方法匹配器。
      *
-     *     addPutMethod(MethodMatcher().name("setText"))
+     *     addWriteMethod(MethodMatcher().name("setText"))
      *
-     * @param putMethod method matcher / 方法匹配器
+     * @param writeMethod method matcher / 方法匹配器
      * @return [FieldMatcher]
      */
-    fun addPutMethod(putMethod: MethodMatcher) = also {
+    fun addWriteMethod(writeMethod: MethodMatcher) = also {
         this.putMethodsMatcher = putMethodsMatcher ?: MethodsMatcher()
-        this.putMethodsMatcher!!.add(putMethod)
+        this.putMethodsMatcher!!.add(writeMethod)
     }
 
     /**
@@ -488,12 +490,12 @@ class FieldMatcher : BaseQuery, IAnnotationEncodeValue {
      * ----------------
      * 写入该字段值的方法匹配器。
      *
-     *     putMethods("Landroid/widget/TextView;->setText(Ljava/lang/CharSequence;)V")
+     *     addWriteMethod("Landroid/widget/TextView;->setText(Ljava/lang/CharSequence;)V")
      *
      * @param methodDescriptor method descriptor / 方法描述符
      * @return [FieldMatcher]
      */
-    fun addPutMethod(methodDescriptor: String) = also {
+    fun addWriteMethod(methodDescriptor: String) = also {
         this.putMethodsMatcher = putMethodsMatcher ?: MethodsMatcher()
         this.putMethodsMatcher!!.add(MethodMatcher(methodDescriptor))
     }
@@ -533,35 +535,35 @@ class FieldMatcher : BaseQuery, IAnnotationEncodeValue {
     }
 
     /**
-     * @see getMethods
+     * @see readMethods
      */
     @kotlin.internal.InlineOnly
-    inline fun getMethods(init: MethodsMatcher.() -> Unit) = also {
-        getMethods(MethodsMatcher().apply(init))
+    inline fun readMethods(init: MethodsMatcher.() -> Unit) = also {
+        readMethods(MethodsMatcher().apply(init))
     }
 
     /**
-     * @see addGetMethod
+     * @see addReadMethod
      */
     @kotlin.internal.InlineOnly
-    inline fun addGetMethod(init: MethodMatcher.() -> Unit) = also {
-        addGetMethod(MethodMatcher().apply(init))
+    inline fun addReadMethod(init: MethodMatcher.() -> Unit) = also {
+        addReadMethod(MethodMatcher().apply(init))
     }
 
     /**
-     * @see putMethods
+     * @see writeMethods
      */
     @kotlin.internal.InlineOnly
-    inline fun putMethods(init: MethodsMatcher.() -> Unit) = also {
-        putMethods(MethodsMatcher().apply(init))
+    inline fun writeMethods(init: MethodsMatcher.() -> Unit) = also {
+        writeMethods(MethodsMatcher().apply(init))
     }
 
     /**
-     * @see addPutMethod
+     * @see addWriteMethod
      */
     @kotlin.internal.InlineOnly
-    inline fun addPutMethod(init: MethodMatcher.() -> Unit) = also {
-        addPutMethod(MethodMatcher().apply(init))
+    inline fun addWriteMethod(init: MethodMatcher.() -> Unit) = also {
+        addWriteMethod(MethodMatcher().apply(init))
     }
 
     // endregion

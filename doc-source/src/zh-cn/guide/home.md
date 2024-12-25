@@ -1,107 +1,27 @@
 # 介绍
 
-> 这是一个使用 C++ 实现的高性能 dex 解析库，用于运行时查找被混淆的类、方法以及属性。
+> `DexKit` 是一个使用 C++ 实现的 dex 高性能运行时解析库，用于查找被混淆的类、方法或者属性。
 
 ## 开发背景
 
-最开始是因为模块开发需求，需要查找对于某些特定字符串的调用，咕咕华写的工具类看不懂（~~咕咕华全责！~~），于是自己去学习了一轮 Dalvik 字节码，
-然后使用 Java 实现了一个功能较为简单的 Dex 解析库，但是由于支持的 API 过少，所以仅限于模块内部使用并没有独立出来。
+在 Xposed 模块的开发中，我们通常需要对特定的方法进行 hook。然而，由于代码混淆，模块开发者往往不得不维护多个版本的
+hook 点，以确保模块在不同版本下的兼容性。这种适配方式繁琐且容易出错。
 
-后来由于某段时间`太极`对于 JIT 的特殊处理，导致 Dex 解析过程中的代码未被 JIT 优化编译成本地代码。所以执行速度极慢，在 Android12 上甚至需要
-2分钟左右才能完成全部流程，于是就有了使用 C++ 重写的想法（~~虽然这个想法在很久以前就有了，咕咕咕~~）。
+有没有更好的解决方案呢？有些开发者可能会考虑遍历 ClassLoader 中的所有类，并通过反射遍历类的特征，如方法名、参数类型、
+返回值类型和注解等，然后根据这些特征进行适配。然而，这种方式也有明显的缺点。首先，由于 Java 的反射机制本身耗时较长，
+查找速度受设备性能影响。其次，在复杂条件下，查找可能需要较长时间，极端条件下甚至可能超过 30 秒。另外，
+强行加载部分类可能会导致宿主 APP 出现不可预知的问题。
 
-## 支持的功能
+通常，开发者会对宿主 APP 进行反编译，获取 smali 或反编译后的 Java 代码，并通过已知的特征对代码进行搜索。
+然后将结果写入适配文件。为了简化这个过程，我们需要一种自动化的方式。目前针对 Dex 文件的解析方案大多依赖于
+`dexlib2`，但由于其是用 Java 开发，性能存在瓶颈。特别是当宿主应用存在大量 dex 文件时，解析时间会很长，
+影响用户体验。为此，`DexKit` 应运而生。它采用 C++ 实现，性能优越的同时且内部使用多线程和多种算法进行优化，
+能够在极短时间内完成复杂的搜索。
 
-- 批量搜索指定字符串的方法/类
-- 查找使用了指定字符串的方法/类
-- 方法调用/被调用搜索
-- 直系子类搜索
-- 方法多条件搜索
-- op序列搜索(仅支持标准dex指令)
-- 注解搜索（目前仅支持搜索value为字符串的查找）
+## 语言要求
 
-## 使用示例
+推荐使用 Kotlin 进行开发，因为其提供了 DSL 支持，可以让我们在使用 `DexKit` 时获得更好的体验。如果您不熟悉
+Kotlin，也无需担心，API 也提供了相应的链式调用支持，同样能让 Java 开发者获得良好的体验。
 
-### 样例 APP 代码
-
-> 假设这是一个宿主 APP 的被混淆后的代码，我们需要对这个方法的 hook 进行动态适配，由于混淆的存在，可能每个版本方法名以及类名都会发生变化
-```java
-public class abc {
-    
-    public boolean cvc() {
-        boolean b = false;
-        // ...
-        Log.d("VipCheckUtil", "userInfo: xxxx");
-        // ...
-        return b;
-    }
-}
-```
-
-DexKit 可以轻松解决这个问题！
-
-### Xposed Hook 代码
-
-> 通过创建 `DexKitBridge` 实例，我们可以对 APP 的 dex 进行特定的查找
-
-::: warning 注意
-只创建一个实例。完成后，您必须调用 `.close()` 以防止内存泄漏（更好的方式是使用 try-with-resources 或者 kotlin .use）。
-:::
-
-:::: code-group
-::: code-group-item kotlin
-```kotlin
-@Throws(NoSuchMethodException::class)
-fun vipHook(loadPackageParam: LoadPackageParam) {
-    System.loadLibrary("dexkit")
-    val apkPath = loadPackageParam.appInfo.sourceDir
-    DexKitBridge.create(apkPath)?.use { bridge ->
-        val resultMap = bridge.batchFindMethodsUsingStrings {
-            addQuery("VipCheckUtil_isVip", setOf("VipCheckUtil", "userInfo:"))
-            matchType = MatchType.CONTAINS
-        }
-        val result = resultMap["VipCheckUtil_isVip"]!!
-        assert(result.size == 1)
-
-        val descriptor = result.first()
-        val method: Method = descriptor.getMethodInstance(hostClassLoader)
-        XposedBridge.hookMethod(method, XC_MethodReplacement.returnConstant(true))
-    }
-}
-```
-:::
-::: code-group-item java
-```java
-public void vipHook(LoadPackageParam loadPackageParam) throws NoSuchMethodException {
-    System.loadLibrary("dexkit");
-    String apkPath = loadPackageParam.appInfo.sourceDir;
-    try (DexKitBridge bridge = DexKitBridge.create(apkPath)) {
-        if (bridge == null) {
-            return;
-        }
-        Map<String, List<DexMethodDescriptor>> resultMap =
-            bridge.batchFindMethodsUsingStrings(
-                BatchFindArgs.builder()
-                    .addQuery("VipCheckUtil_isVip", List.of("VipCheckUtil", "userInfo:"))
-                    .matchType(MatchType.CONTAINS)
-                    .build()
-            );
-
-        List<DexMethodDescriptor> result = Objects.requireNonNull(resultMap.get("VipCheckUtil_isVip"));
-        assert result.size() == 1;
-
-        DexMethodDescriptor descriptor = result.get(0);
-        Method isVipMethod = descriptor.get(0)
-            .getMethodInstance(HostInfo.getHostClassLoader());
-        XposedBridge.hookMethod(isVipMethod, XC_MethodReplacement.returnConstant(true));
-    }
-}
-```
-:::
-::::
-
-怎么样？是不是很简单！只需短短几行代码就完成了动态混淆的适配。
-
-现在，借助性能强劲的 `DexKit`，您可以快速定位混淆。
-
-下面我们来学习一下 `DexKit` 的使用方法。
+文档中的所有示例代码都将使用 Kotlin 编写。您可以通过 [这里](/DexKit/zh-cn/) 的示例，轻松了解相应的
+Java 写法。

@@ -24,6 +24,8 @@
 #include "schema/querys_generated.h"
 #include "schema/results_generated.h"
 
+#define WRITE_FILE_BLOCK_SIZE 1024 * 1024
+
 namespace dexkit {
 
 bool comp(std::unique_ptr<DexItem> &a, std::unique_ptr<DexItem> &b) {
@@ -41,6 +43,11 @@ DexKit::DexKit(std::string_view apk_path, int unzip_thread_num) {
 
 void DexKit::SetThreadNum(int num) {
     _thread_num = num;
+}
+
+Error DexKit::InitFullCache() {
+    InitDexCache(UINT32_MAX);
+    return Error::SUCCESS;
 }
 
 Error DexKit::AddDex(uint8_t *data, size_t size) {
@@ -126,7 +133,18 @@ Error DexKit::ExportDexFile(std::string_view path) {
         if (fp == nullptr) {
             return Error::OPEN_FILE_FAILED;
         }
-        fwrite(image, 1, image->len(), fp);
+        int len = (int) image->len();
+        int offset = 0;
+        while (offset < len) {
+            int size = std::min(WRITE_FILE_BLOCK_SIZE, len - offset);
+            size_t write_size = fwrite(image->addr() + offset, 1, size, fp);
+            if (write_size != size) {
+                fclose(fp);
+                return Error::WRITE_FILE_INCOMPLETE;
+            }
+            offset += size;
+            fflush(fp);
+        }
         fclose(fp);
     }
     return Error::SUCCESS;
@@ -763,6 +781,26 @@ DexKit::GetUsingStrings(int64_t encode_method_id) {
 }
 
 std::unique_ptr<flatbuffers::FlatBufferBuilder>
+DexKit::GetUsingFields(int64_t encode_method_id) {
+    InitDexCache(kMethodUsingField);
+
+    auto dex_id = encode_method_id >> 32;
+    auto method_id = encode_method_id & UINT32_MAX;
+    auto result = dex_items[dex_id]->GetUsingFields(method_id);
+
+    auto builder = std::make_unique<flatbuffers::FlatBufferBuilder>();
+    std::vector<flatbuffers::Offset<schema::UsingFieldMeta>> offsets;
+    for (auto &bean: result) {
+        auto res = bean.CreateUsingFieldMeta(*builder);
+        builder->Finish(res);
+        offsets.emplace_back(res);
+    }
+    auto array_holder = schema::CreateUsingFieldMetaArrayHolder(*builder, builder->CreateVector(offsets));
+    builder->Finish(array_holder);
+    return builder;
+}
+
+std::unique_ptr<flatbuffers::FlatBufferBuilder>
 DexKit::FieldGetMethods(int64_t encode_field_id) {
     InitDexCache(kRwFieldMethod | kMethodUsingField);
 
@@ -869,6 +907,9 @@ void DexKit::BuildPackagesMatchTrie(
             if (package_str[0] != 'L') {
                 package_str = "L" + package_str; // NOLINT
             }
+            if (package_str.back() != '/') {
+                package_str += '/';
+            }
             trie.insert(package_str, true, ignore_packages_case);
             packages.emplace_back(std::move(package_str));
         }
@@ -880,6 +921,9 @@ void DexKit::BuildPackagesMatchTrie(
             std::replace(package_str.begin(), package_str.end(), '.', '/');
             if (package_str[0] != 'L') {
                 package_str = "L" + package_str; // NOLINT
+            }
+            if (package_str.back() != '/') {
+                package_str += '/';
             }
             trie.insert(package_str, false, ignore_packages_case);
             packages.emplace_back(std::move(package_str));

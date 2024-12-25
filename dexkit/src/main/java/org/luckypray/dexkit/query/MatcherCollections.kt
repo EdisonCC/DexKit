@@ -57,16 +57,6 @@ class StringMatcherList : ArrayList<StringMatcher>, IQuery {
     ) = also {
         add(StringMatcher(usingString, matchType, ignoreCase))
     }
-
-    /**
-     * Add [StringMatcher].
-     * ----------------
-     * 添加 [StringMatcher]。
-     */
-    @kotlin.internal.InlineOnly
-    inline fun add(init: StringMatcher.() -> Unit) = also {
-        add(StringMatcher().apply(init))
-    }
 }
 
 class FieldMatcherList : ArrayList<FieldMatcher>, IQuery {
@@ -84,7 +74,7 @@ class FieldMatcherList : ArrayList<FieldMatcher>, IQuery {
      * @param typeName field type name / 字段类型名
      * @param matchType string match type / 字符串匹配类型
      * @param ignoreCase ignore case / 忽略大小写
-     * @return [ClassMatcher]
+     * @return [FieldMatcherList]
      */
     @JvmOverloads
     fun addForType(
@@ -96,6 +86,18 @@ class FieldMatcherList : ArrayList<FieldMatcher>, IQuery {
     }
 
     /**
+     * Add class field type matcher.
+     * ----------------
+     * 添加类字段的类型的匹配器。
+     *
+     * @param clazz type class / 类型
+     * @return [FieldMatcherList]
+     */
+    fun addForType(clazz: Class<*>) = also {
+        add(FieldMatcher().apply { type(clazz) })
+    }
+
+    /**
      * Add class field name matcher.
      * ----------------
      * 添加类字段的名的匹配器。
@@ -103,12 +105,17 @@ class FieldMatcherList : ArrayList<FieldMatcher>, IQuery {
      *     addField("field", false)
      *
      * @param name field name / 字段名
+     * @param matchType string match type / 字符串匹配类型
      * @param ignoreCase ignore case / 忽略大小写
-     * @return [ClassMatcher]
+     * @return [FieldMatcherList]
      */
     @JvmOverloads
-    fun addForName(name: String, ignoreCase: Boolean = false) = also {
-        add(FieldMatcher().apply { name(name, ignoreCase) })
+    fun addForName(
+        name: String,
+        matchType: StringMatchType = StringMatchType.Equals,
+        ignoreCase: Boolean = false
+    ) = also {
+        add(FieldMatcher().apply { name(name, matchType, ignoreCase) })
     }
 
     /**
@@ -261,6 +268,7 @@ class StringMatchersGroupList : ArrayList<StringMatchersGroup>, IQuery {
      * @param ignoreCase ignore case / 忽略大小写
      * @return [StringMatchersGroupList]
      */
+    @JvmOverloads
     fun add(
         groupName: String,
         usingStrings: Collection<String>,

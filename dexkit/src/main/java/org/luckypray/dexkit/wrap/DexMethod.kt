@@ -24,16 +24,18 @@
 package org.luckypray.dexkit.wrap
 
 import org.luckypray.dexkit.util.DexSignUtil.getParamTypeNames
-import org.luckypray.dexkit.util.DexSignUtil.getSimpleName
+import org.luckypray.dexkit.util.DexSignUtil.getTypeName
 import org.luckypray.dexkit.util.DexSignUtil.getTypeSign
 import org.luckypray.dexkit.util.InstanceUtil
-import java.io.Serializable
 import java.lang.reflect.Constructor
 import java.lang.reflect.Method
 
-class DexMethod: Serializable {
-    private companion object {
-        private const val serialVersionUID = 1L
+class DexMethod: ISerializable {
+
+    companion object {
+
+        @JvmStatic
+        fun deserialize(descriptor: String) = DexMethod(descriptor)
     }
 
     val className: String
@@ -41,12 +43,18 @@ class DexMethod: Serializable {
     val paramTypeNames: List<String>
     val returnTypeName: String
 
+    val declaredClassName get() = className
+
     /**
      * method sign
      * ----------------
      * 方法签名
      */
-    val methodSign get() = buildString {
+    val methodSign by lazy {
+        getSign()
+    }
+
+    private fun getSign() = buildString {
         append("(")
         append(paramTypeNames.joinToString("") { getTypeSign(it) })
         append(")")
@@ -61,30 +69,37 @@ class DexMethod: Serializable {
     val isConstructor get() = name == "<init>"
 
     /**
+     * Whether the method is a static initializer
+     * ----------------
+     * 该方法是否为静态初始化方法
+     */
+    val isStaticInitializer get() = name == "<clinit>"
+
+    /**
      * Whether the method is a normal method
      * ----------------
      * 该方法是否为普通方法
      */
-    val isMethod get() = name != "<clinit>" && !isConstructor
+    val isMethod get() = !isStaticInitializer && !isConstructor
 
     /**
      * Convert method descriptor to [DexMethod].
      * ----------------
      * 转换方法描述符为 [DexMethod]。
      *
-     * @param methodDescriptor method descriptor / 方法描述符
+     * @param descriptor method descriptor / 方法描述符
      */
-    constructor(methodDescriptor: String) {
-        val idx1 = methodDescriptor.indexOf("->")
-        val idx2 = methodDescriptor.indexOf("(")
-        val idx3 = methodDescriptor.indexOf(")")
+    constructor(descriptor: String) {
+        val idx1 = descriptor.indexOf("->")
+        val idx2 = descriptor.indexOf("(", idx1 + 1)
+        val idx3 = descriptor.indexOf(")", idx2 + 1)
         if (idx1 == -1 || idx2 == -1 || idx3 == -1) {
-            throw IllegalAccessError("not method descriptor: $methodDescriptor")
+            throw IllegalAccessError("not method descriptor: $descriptor")
         }
-        className = getSimpleName(methodDescriptor.substring(0, idx1))
-        name = methodDescriptor.substring(idx1 + 2, idx2)
-        paramTypeNames = getParamTypeNames(methodDescriptor.substring(idx2 + 1, idx3))
-        returnTypeName = getSimpleName(methodDescriptor.substring(idx3 + 1))
+        className = getTypeName(descriptor.substring(0, idx1))
+        name = descriptor.substring(idx1 + 2, idx2)
+        paramTypeNames = getParamTypeNames(descriptor.substring(idx2 + 1, idx3))
+        returnTypeName = getTypeName(descriptor.substring(idx3 + 1))
     }
 
     /**
@@ -95,10 +110,10 @@ class DexMethod: Serializable {
      * @param method method / 方法
      */
     constructor(method: Method) {
-        className = getSimpleName(method.declaringClass)
+        className = getTypeName(method.declaringClass)
         name = method.name
-        paramTypeNames = method.parameterTypes.map { getSimpleName(it) }
-        returnTypeName = getSimpleName(method.returnType)
+        paramTypeNames = method.parameterTypes.map { getTypeName(it) }
+        returnTypeName = getTypeName(method.returnType)
     }
 
     /**
@@ -146,10 +161,7 @@ class DexMethod: Serializable {
             append(getTypeSign(className))
             append("->")
             append(name)
-            append("(")
-            append(paramTypeNames.joinToString("") { getTypeSign(it) })
-            append(")")
-            append(getTypeSign(returnTypeName))
+            append(methodSign)
         }
     }
 

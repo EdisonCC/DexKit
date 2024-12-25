@@ -559,16 +559,18 @@ class ClassMatcher : BaseQuery, IAnnotationEncodeValue {
      *     addField("field", false)
      *
      * @param fieldName field name / 字段名
+     * @param matchType string match type / 字符串匹配类型
      * @param ignoreCase ignore case / 忽略大小写
      * @return [ClassMatcher]
      */
     @JvmOverloads
     fun addFieldForName(
         fieldName: String,
+        matchType: StringMatchType = StringMatchType.Equals,
         ignoreCase: Boolean = false
     ) = also {
         this.fieldsMatcher = this.fieldsMatcher ?: FieldsMatcher()
-        this.fieldsMatcher!!.add(FieldMatcher().name(fieldName, ignoreCase))
+        this.fieldsMatcher!!.add(FieldMatcher().name(fieldName, matchType, ignoreCase))
     }
 
     /**
@@ -591,6 +593,19 @@ class ClassMatcher : BaseQuery, IAnnotationEncodeValue {
     ) = also {
         this.fieldsMatcher = this.fieldsMatcher ?: FieldsMatcher()
         this.fieldsMatcher!!.add(FieldMatcher().type(typeName, matchType, ignoreCase))
+    }
+
+    /**
+     * Add class field type matcher.
+     * ----------------
+     * 添加类字段的类型的匹配器。
+     *
+     * @param clazz field type / 字段类型
+     * @return [ClassMatcher]
+     */
+    fun addFieldForType(clazz: Class<*>) = also {
+        this.fieldsMatcher = this.fieldsMatcher ?: FieldsMatcher()
+        this.fieldsMatcher!!.add(FieldMatcher().type(clazz))
     }
 
     /**
@@ -792,6 +807,30 @@ class ClassMatcher : BaseQuery, IAnnotationEncodeValue {
     }
 
     /**
+     * Using strings matcher(fuzzy match).
+     * ----------------
+     * 使用字符串匹配器(完全匹配)。
+     *
+     * @param usingStrings using string list / 使用字符串列表
+     * @return [ClassMatcher]
+     */
+    fun usingEqStrings(usingStrings: Collection<String>) = also {
+        this.usingStringsMatcher = usingStrings.map { StringMatcher(it, StringMatchType.Equals, false) }.toMutableList()
+    }
+
+    /**
+     * Using strings matcher(fuzzy match).
+     * ----------------
+     * 使用字符串匹配器(完全匹配)。
+     *
+     * @param usingStrings using string list / 使用字符串列表
+     * @return [ClassMatcher]
+     */
+    fun usingEqStrings(vararg usingStrings: String) = also {
+        this.usingStringsMatcher = usingStrings.map { StringMatcher(it, StringMatchType.Equals, false) }.toMutableList()
+    }
+
+    /**
      * Add using string matcher.
      * ----------------
      * 添加使用字符串的匹配器。
@@ -825,6 +864,19 @@ class ClassMatcher : BaseQuery, IAnnotationEncodeValue {
         ignoreCase: Boolean = false
     ) = also {
         addUsingString(StringMatcher(usingString, matchType, ignoreCase))
+    }
+
+    /**
+     * Add using string(fuzzy match).
+     * ----------------
+     * 添加使用字符串(完全匹配)。
+     *
+     * @param usingString using string / 使用字符串
+     * @return [ClassMatcher]
+     */
+    fun addEqString(usingString: String) = also {
+        usingStringsMatcher = usingStringsMatcher ?: mutableListOf()
+        usingStringsMatcher!!.add(StringMatcher(usingString, StringMatchType.Equals, false))
     }
 
     // region DSL

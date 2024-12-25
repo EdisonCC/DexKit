@@ -24,22 +24,23 @@
 package org.luckypray.dexkit
 
 import com.google.flatbuffers.FlatBufferBuilder
-import org.luckypray.dexkit.result.ClassData
-import org.luckypray.dexkit.result.FieldData
-import org.luckypray.dexkit.result.MethodData
 import org.luckypray.dexkit.query.BatchFindClassUsingStrings
 import org.luckypray.dexkit.query.BatchFindMethodUsingStrings
-import org.luckypray.dexkit.query.ClassDataList
-import org.luckypray.dexkit.query.FieldDataList
 import org.luckypray.dexkit.query.FindClass
 import org.luckypray.dexkit.query.FindField
 import org.luckypray.dexkit.query.FindMethod
-import org.luckypray.dexkit.query.MethodDataList
+import org.luckypray.dexkit.result.AnnotationData
+import org.luckypray.dexkit.result.ClassData
+import org.luckypray.dexkit.result.ClassDataList
+import org.luckypray.dexkit.result.FieldData
+import org.luckypray.dexkit.result.FieldDataList
+import org.luckypray.dexkit.result.MethodData
+import org.luckypray.dexkit.result.MethodDataList
+import org.luckypray.dexkit.result.UsingFieldData
+import org.luckypray.dexkit.util.DexSignUtil
 import org.luckypray.dexkit.wrap.DexClass
 import org.luckypray.dexkit.wrap.DexField
 import org.luckypray.dexkit.wrap.DexMethod
-import org.luckypray.dexkit.result.AnnotationData
-import org.luckypray.dexkit.util.DexSignUtil
 import java.io.Closeable
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field
@@ -92,6 +93,16 @@ class DexKitBridge : Closeable {
 
     protected fun finalize() {
         close()
+    }
+
+    /**
+     * Initialize full cache, note: this will take up a lot of memory and time.
+     * Only recommended for performance testing.
+     * ----------------
+     * 初始化全量缓存，注意：这将会占用大量内存以及时间。仅推荐用于性能测试。
+     */
+    fun initFullCache() {
+        nativeInitFullCache(safeToken)
     }
 
     /**
@@ -210,16 +221,21 @@ class DexKitBridge : Closeable {
     }
 
     /**
-     * Convert class descriptor to [ClassData] (if exists).
+     * Convert class name or descriptor to [ClassData] (if exists).
      * ----------------
-     * 转换类描述符为 [ClassData] （如果存在）。
+     * 转换类名或描述符为 [ClassData] （如果存在）。
      *
-     * @param [dexDescriptor] class descriptor / 类描述符
+     * @param [identifier] class name or descriptor / 类名或类描述
      * @return [ClassData]
      */
-    fun getClassData(dexDescriptor: String): ClassData? {
-        DexClass(dexDescriptor)
-        return nativeGetClassData(safeToken, dexDescriptor)?.let {
+    fun getClassData(identifier: String): ClassData? {
+        val descriptor: String = if (identifier.first() == 'L' && identifier.last() == ';') {
+            identifier
+        } else {
+            "L" + identifier.replace('.', '/') + ";"
+        }
+        DexClass(descriptor)
+        return nativeGetClassData(safeToken, descriptor)?.let {
             ClassData.from(this, InnerClassMeta.getRootAsClassMeta(ByteBuffer.wrap(it)))
         }
     }
@@ -233,7 +249,7 @@ class DexKitBridge : Closeable {
      * @return [MethodData]
      */
     fun getMethodData(method: Method): MethodData? {
-        return getMethodData(DexSignUtil.getMethodSign(method))
+        return getMethodData(DexSignUtil.getDescriptor(method))
     }
 
     /**
@@ -245,7 +261,7 @@ class DexKitBridge : Closeable {
      * @return [MethodData]
      */
     fun getMethodData(constructor: Constructor<*>): MethodData? {
-        return getMethodData(DexSignUtil.getConstructorSign(constructor))
+        return getMethodData(DexSignUtil.getDescriptor(constructor))
     }
 
     /**
@@ -253,12 +269,12 @@ class DexKitBridge : Closeable {
      * ----------------
      * 转换方法描述符为 [MethodData] （如果存在）。
      *
-     * @param [dexDescriptor] method descriptor / 方法描述符
+     * @param [descriptor] method descriptor / 方法描述符
      * @return [MethodData]
      */
-    fun getMethodData(dexDescriptor: String): MethodData? {
-        DexMethod(dexDescriptor)
-        return nativeGetMethodData(safeToken, dexDescriptor)?.let {
+    fun getMethodData(descriptor: String): MethodData? {
+        DexMethod(descriptor)
+        return nativeGetMethodData(safeToken, descriptor)?.let {
             MethodData.from(this, InnerMethodMeta.getRootAsMethodMeta(ByteBuffer.wrap(it)))
         }
     }
@@ -280,12 +296,12 @@ class DexKitBridge : Closeable {
      * ----------------
      * 转换字段描述符为 [FieldData] （如果存在）。
      *
-     * @param [dexDescriptor] field descriptor / 字段描述符
+     * @param [descriptor] field descriptor / 字段描述符
      * @return [FieldData]
      */
-    fun getFieldData(dexDescriptor: String): FieldData? {
-        DexField(dexDescriptor)
-        return nativeGetFieldData(safeToken, dexDescriptor)?.let {
+    fun getFieldData(descriptor: String): FieldData? {
+        DexField(descriptor)
+        return nativeGetFieldData(safeToken, descriptor)?.let {
             FieldData.from(this, InnerFieldMeta.getRootAsFieldMeta(ByteBuffer.wrap(it)))
         }
     }
@@ -509,10 +525,10 @@ class DexKitBridge : Closeable {
     }
 
     @kotlin.internal.InlineOnly
-    internal inline fun getCallMethods(encodeId: Long): List<MethodData> {
+    internal inline fun getCallMethods(encodeId: Long): MethodDataList {
         val res = nativeGetCallMethods(safeToken, encodeId)
         val holder = InnerMethodMetaArrayHolder.getRootAsMethodMetaArrayHolder(ByteBuffer.wrap(res))
-        val list = mutableListOf<MethodData>()
+        val list = MethodDataList()
         for (i in 0 until holder.methodsLength) {
             list.add(MethodData.from(this@DexKitBridge, holder.methods(i)!!))
         }
@@ -520,10 +536,10 @@ class DexKitBridge : Closeable {
     }
 
     @kotlin.internal.InlineOnly
-    internal inline fun getInvokeMethods(encodeId: Long): List<MethodData> {
+    internal inline fun getInvokeMethods(encodeId: Long): MethodDataList {
         val res = nativeGetInvokeMethods(safeToken, encodeId)
         val holder = InnerMethodMetaArrayHolder.getRootAsMethodMetaArrayHolder(ByteBuffer.wrap(res))
-        val list = mutableListOf<MethodData>()
+        val list = MethodDataList()
         for (i in 0 until holder.methodsLength) {
             list.add(MethodData.from(this@DexKitBridge, holder.methods(i)!!))
         }
@@ -536,10 +552,21 @@ class DexKitBridge : Closeable {
     }
 
     @kotlin.internal.InlineOnly
-    internal inline fun readFieldMethods(encodeId: Long): List<MethodData> {
+    internal inline fun getMethodUsingFields(encodeId: Long): List<UsingFieldData> {
+        val res = nativeGetMethodUsingFields(safeToken, encodeId)
+        val holder = InnerUsingFieldMetaArrayHolder.getRootAsUsingFieldMetaArrayHolder(ByteBuffer.wrap(res))
+        val list = mutableListOf<UsingFieldData>()
+        for (i in 0 until holder.itemsLength) {
+            list.add(UsingFieldData.from(this@DexKitBridge, holder.items(i)!!))
+        }
+        return list
+    }
+
+    @kotlin.internal.InlineOnly
+    internal inline fun readFieldMethods(encodeId: Long): MethodDataList {
         val res = nativeFieldGetMethods(safeToken, encodeId)
         val holder = InnerMethodMetaArrayHolder.getRootAsMethodMetaArrayHolder(ByteBuffer.wrap(res))
-        val list = mutableListOf<MethodData>()
+        val list = MethodDataList()
         for (i in 0 until holder.methodsLength) {
             list.add(MethodData.from(this@DexKitBridge, holder.methods(i)!!))
         }
@@ -547,10 +574,10 @@ class DexKitBridge : Closeable {
     }
 
     @kotlin.internal.InlineOnly
-    internal inline fun writeFieldMethods(encodeId: Long): List<MethodData> {
+    internal inline fun writeFieldMethods(encodeId: Long): MethodDataList {
         val res = nativeFieldPutMethods(safeToken, encodeId)
         val holder = InnerMethodMetaArrayHolder.getRootAsMethodMetaArrayHolder(ByteBuffer.wrap(res))
-        val list = mutableListOf<MethodData>()
+        val list = MethodDataList()
         for (i in 0 until holder.methodsLength) {
             list.add(MethodData.from(this@DexKitBridge, holder.methods(i)!!))
         }
@@ -563,10 +590,19 @@ class DexKitBridge : Closeable {
     }
 
     companion object {
+        /**
+         * create DexKitBridge by apk path
+         * ----------------
+         * 通过 apk 路径创建 DexKitBridge
+         *
+         * @see [Companion.create]
+         *
+         * @param apkPath apk path / apk 路径
+         * @return [DexKitBridge]
+         */
         @JvmStatic
-        fun create(apkPath: String): DexKitBridge? {
-            val helper = DexKitBridge(apkPath)
-            return if (helper.isValid) helper else null
+        fun create(apkPath: String): DexKitBridge {
+            return DexKitBridge(apkPath)
         }
 
         /**
@@ -578,9 +614,8 @@ class DexKitBridge : Closeable {
          * @return [DexKitBridge]
          */
         @JvmStatic
-        fun create(dexBytesArray: Array<ByteArray>): DexKitBridge? {
-            val helper = DexKitBridge(dexBytesArray)
-            return if (helper.isValid) helper else null
+        fun create(dexBytesArray: Array<ByteArray>): DexKitBridge {
+            return DexKitBridge(dexBytesArray)
         }
 
         /**
@@ -595,9 +630,8 @@ class DexKitBridge : Closeable {
          * @param useMemoryDexFile whether to use memory dex file / 是否使用内存 dex 文件
          */
         @JvmStatic
-        fun create(loader: ClassLoader, useMemoryDexFile: Boolean): DexKitBridge? {
-            val helper = DexKitBridge(loader, useMemoryDexFile)
-            return if (helper.isValid) helper else null
+        fun create(loader: ClassLoader, useMemoryDexFile: Boolean): DexKitBridge {
+            return DexKitBridge(loader, useMemoryDexFile)
         }
 
         @JvmStatic
@@ -614,6 +648,9 @@ class DexKitBridge : Closeable {
 
         @JvmStatic
         private external fun nativeSetThreadNum(nativePtr: Long, threadNum: Int)
+
+        @JvmStatic
+        private external fun nativeInitFullCache(nativePtr: Long)
 
         @JvmStatic
         private external fun nativeGetDexNum(nativePtr: Long): Int
@@ -683,6 +720,9 @@ class DexKitBridge : Closeable {
 
         @JvmStatic
         private external fun nativeGetMethodUsingStrings(nativePtr: Long, encodeId: Long): Array<String>
+
+        @JvmStatic
+        private external fun nativeGetMethodUsingFields(nativePtr: Long, encodeId: Long): ByteArray
 
         @JvmStatic
         private external fun nativeFieldGetMethods(nativePtr: Long, encodeId: Long): ByteArray

@@ -1,100 +1,39 @@
 # Introduction
 
-> A high-performance runtime parsing library for dex implemented in C++, used for lookup of obfuscated classes,
-> methods, and properties.
+> `DexKit` is a high-performance runtime parsing library for dex implemented in C++, used to search
+> for obfuscated classes, methods, or properties.
 
-## Supported functions
+## Development Background
 
-- Batch search for methods/classes with specified string
-- Find methods/classes that use a specified string
-- Method call/called search
-- Direct subclass search
-- Method multi-condition search
-- Opcode sequence search (standard dex instructions only)
-- Annotation search (currently only supports search for string values)
+In the development of Xposed modules, we often need to hook specific methods. However, due to code
+obfuscation, module developers often have to maintain multiple versions of hook points to ensure
+compatibility of the module across different versions. This adaptation approach is cumbersome and
+error-prone.
 
-## Usage Example
+Is there a better solution? Some developers may consider traversing all classes in the ClassLoader
+and traversing the characteristics of the classes through reflection, such as method names,
+parameter types, return value types, and annotations, and then adapting based on these features.
+However, this approach also has obvious drawbacks. First, due to the time-consuming nature of Java's
+reflection mechanism itself, the search speed is affected by device performance. Secondly, in
+complex conditions, the search may take a long time, and in extreme conditions, it may even exceed
+30 seconds. In addition, forcibly loading some classes may cause unpredictable problems in the host
+APP.
 
-#### Example Code
+Typically, developers decompile the host APP to obtain smali or decompiled Java code and search the
+code based on known features. The results are then written into the adaptation file. To simplify
+this process, we need an automated way. Currently, most solutions for parsing Dex files rely
+on `dexlib2`, but due to its development in Java, there are performance bottlenecks. Especially when
+the host application has a large number of dex files, the parsing time is long, affecting the user
+experience. Therefore, `DexKit` came into being. It is implemented in C++, providing superior
+performance, internal optimizations using multi-threading and various algorithms, enabling complex
+searches to be completed in a very short time.
 
-> This is an example app's obfuscated code, and we want to dynamically adapt the hook for this method. Due to obfuscation, the method and class name may change with each version.
-```java
-public class abc {
+## Language Requirement
 
-    public boolean cvc() {
-        boolean b = false;
-        // ...
-        Log.d("VipCheckUtil", "userInfo: xxxx");
-        // ...
-        return b;
-    }
-}
-```
+It is recommended to use Kotlin for development because it provides DSL support, allowing us to have
+a better experience when using `DexKit`. If you are not familiar with Kotlin, you don't need to
+worry either; the API also provides corresponding chain call support, which allows Java developers
+to have a good experience.
 
-DexKit can easily solve this problem!
-
-#### Xposed hook code
-
-> By creating an instance of `DexKitBridge`, you can search for specific dex in the APP
-
-::: warning warning
-Only create one single instance. Once done, you must call `.close()` to prevent memory leaks (or better yet, use try with resources / kotlin .use).
-:::
-
-:::: code-group
-::: code-group-item kotlin
-```kotlin
-@Throws(NoSuchMethodException::class)
-fun vipHook(loadPackageParam: LoadPackageParam) {
-    System.loadLibrary("dexkit")
-    val apkPath = loadPackageParam.appInfo.sourceDir
-    DexKitBridge.create(apkPath)?.use { bridge ->
-        val resultMap = bridge.batchFindMethodsUsingStrings {
-            addQuery("VipCheckUtil_isVip", setOf("VipCheckUtil", "userInfo:"))
-            matchType = MatchType.CONTAINS
-        }
-        val result = resultMap["VipCheckUtil_isVip"]!!
-        assert(result.size == 1)
-
-        val descriptor = result.first()
-        val method: Method = descriptor.getMethodInstance(hostClassLoader)
-        XposedBridge.hookMethod(method, XC_MethodReplacement.returnConstant(true))
-    }
-}
-```
-:::
-::: code-group-item java
-```java
-public void vipHook(LoadPackageParam loadPackageParam) throws NoSuchMethodException {
-    System.loadLibrary("dexkit");
-    String apkPath = loadPackageParam.appInfo.sourceDir;
-    try (DexKitBridge bridge = DexKitBridge.create(apkPath)) {
-        if (bridge == null) {
-            return;
-        }
-        Map<String, List<DexMethodDescriptor>> resultMap =
-            bridge.batchFindMethodsUsingStrings(
-                BatchFindArgs.builder()
-                    .addQuery("VipCheckUtil_isVip", List.of("VipCheckUtil", "userInfo:"))
-                    .matchType(MatchType.CONTAINS)
-                    .build()
-            );
-
-        List<DexMethodDescriptor> result = Objects.requireNonNull(resultMap.get("VipCheckUtil_isVip"));
-        assert result.size() == 1;
-
-        DexMethodDescriptor descriptor = result.get(0);
-        Method isVipMethod = descriptor.get(0)
-            .getMethodInstance(HostInfo.getHostClassLoader());
-        XposedBridge.hookMethod(isVipMethod, XC_MethodReplacement.returnConstant(true));
-    }
-}
-```
-:::
-::::
-
-How about that? Isn't it easy!
-
-Now, with the powerful performance of `DexKit`, you can quickly locate obfuscated methods, classes and co.
-
-Next, let's learn how to use `DexKit`.
+All example code in the documentation will be written in Kotlin. You can easily understand the
+corresponding Java usage through the examples [here](/DexKit/zh-cn/).

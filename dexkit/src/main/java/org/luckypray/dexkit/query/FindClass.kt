@@ -149,7 +149,7 @@ class FindClass : BaseQuery() {
      * @param classes search classes / 类列表
      * @return [FindClass]
      */
-    fun searchInClass(classes: Collection<ClassData>) = also {
+    fun searchIn(classes: Collection<ClassData>) = also {
         this.searchClasses = classes
     }
 
@@ -192,7 +192,7 @@ class FindClass : BaseQuery() {
             excludePackages?.map { fbb.createString(it) }?.toIntArray()
                 ?.let { fbb.createVectorOfTables(it) } ?: 0,
             ignorePackagesCase,
-            searchClasses?.map { getEncodeId(it.dexId, it.id) }?.toLongArray()
+            searchClasses?.map { it.getEncodeId() }?.toLongArray()
                 ?.let { InnerFindClass.createInClassesVector(fbb, it) } ?: 0,
             findFirst,
             matcher?.build(fbb) ?: 0

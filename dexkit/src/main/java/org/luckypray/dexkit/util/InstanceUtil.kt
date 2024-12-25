@@ -22,6 +22,9 @@
 
 package org.luckypray.dexkit.util
 
+import org.luckypray.dexkit.util.DexSignUtil.getConstructorSign
+import org.luckypray.dexkit.util.DexSignUtil.getMethodSign
+import org.luckypray.dexkit.util.DexSignUtil.getTypeSign
 import org.luckypray.dexkit.wrap.DexClass
 import org.luckypray.dexkit.wrap.DexField
 import org.luckypray.dexkit.wrap.DexMethod
@@ -31,6 +34,11 @@ import java.lang.reflect.Field
 import java.lang.reflect.Method
 
 object InstanceUtil {
+
+    private val constructorCache = WeakCache<Class<*>, kotlin.Array<Constructor<*>>>()
+    private val fieldsCache = WeakCache<Class<*>, kotlin.Array<Field>>()
+    private val methodsCache = WeakCache<Class<*>, kotlin.Array<Method>>()
+    private val signCache = WeakCache<Any, String>()
 
     @Throws(ClassNotFoundException::class)
     fun getClassInstance(classLoader: ClassLoader, dexClass: DexClass): Class<*> {
@@ -44,17 +52,17 @@ object InstanceUtil {
             return Array.newInstance(clazz, 0)::class.java
         }
         return when (typeName) {
-            "boolean" -> Int::class.javaPrimitiveType!!
-            "byte" -> Byte::class.javaPrimitiveType!!
-            "char" -> Char::class.javaPrimitiveType!!
-            "short" -> Short::class.javaPrimitiveType!!
-            "int" -> Int::class.javaPrimitiveType!!
-            "long" -> Long::class.javaPrimitiveType!!
-            "float" -> Float::class.javaPrimitiveType!!
-            "double" -> Double::class.javaPrimitiveType!!
+            "boolean" -> Int::class.javaPrimitiveType
+            "byte" -> Byte::class.javaPrimitiveType
+            "char" -> Char::class.javaPrimitiveType
+            "short" -> Short::class.javaPrimitiveType
+            "int" -> Int::class.javaPrimitiveType
+            "long" -> Long::class.javaPrimitiveType
+            "float" -> Float::class.javaPrimitiveType
+            "double" -> Double::class.javaPrimitiveType
             "void" -> Void.TYPE
             else -> classLoader.loadClass(typeName)
-        }
+        }!!
     }
 
     @Throws(NoSuchFieldException::class)
@@ -62,8 +70,10 @@ object InstanceUtil {
         try {
             var clz = classLoader.loadClass(dexField.className)
             do {
-                for (field in clz.declaredFields) {
-                    if (dexField.name == field.name && dexField.typeName == field.type.name) {
+                val declaredFields = fieldsCache.get(clz) { clz.declaredFields }
+                for (field in declaredFields) {
+                    if (dexField.name == field.name
+                        && dexField.typeSign == signCache.get(field) { getTypeSign(field.type) }) {
                         field.isAccessible = true
                         return field
                     }
@@ -83,8 +93,9 @@ object InstanceUtil {
         try {
             var clz = classLoader.loadClass(dexMethod.className)
             do {
-                for (constructor in clz.declaredConstructors) {
-                    if (dexMethod.methodSign == DexSignUtil.getConstructorSign(constructor)) {
+                val declaredConstructors = constructorCache.get(clz) { clz.declaredConstructors }
+                for (constructor in declaredConstructors) {
+                    if (dexMethod.methodSign == signCache.get(constructor) { getConstructorSign(constructor) }) {
                         constructor.isAccessible = true
                         return constructor
                     }
@@ -104,9 +115,10 @@ object InstanceUtil {
         try {
             var clz = classLoader.loadClass(dexMethod.className)
             do {
-                for (method in clz.declaredMethods) {
+                val declaredMethods = methodsCache.get(clz) { clz.declaredMethods }
+                for (method in declaredMethods) {
                     if (method.name == dexMethod.name
-                        && dexMethod.methodSign == DexSignUtil.getMethodSign(method)) {
+                        && dexMethod.methodSign == signCache.get(method) { getMethodSign(method) }) {
                         method.isAccessible = true
                         return method
                     }

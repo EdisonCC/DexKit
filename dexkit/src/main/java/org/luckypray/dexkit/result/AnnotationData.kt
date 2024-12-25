@@ -32,7 +32,7 @@ import org.luckypray.dexkit.wrap.DexClass
 
 class AnnotationData private constructor(
     bridge: DexKitBridge,
-    val dexId: Int,
+    dexId: Int,
     val typeId: Int,
     val typeDescriptor: String,
     val visibility: AnnotationVisibilityType?,
@@ -65,7 +65,7 @@ class AnnotationData private constructor(
 
     override fun toString(): String {
         return buildString {
-            append("@${DexSignUtil.getSimpleName(typeDescriptor)}")
+            append("@${DexSignUtil.getTypeName(typeDescriptor)}")
             append("(")
             elements.forEachIndexed { index, element ->
                 if (index != 0) {

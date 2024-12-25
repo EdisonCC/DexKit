@@ -69,7 +69,7 @@ class AnnotationEncodeArrayMatcher : BaseQuery(), IAnnotationEncodeValue {
      * @param elements elements / 元素列表
      * @return [AnnotationEncodeArrayMatcher]
      */
-    fun matchers(elements: Collection<AnnotationEncodeValueMatcher>) = also {
+    fun values(elements: Collection<AnnotationEncodeValueMatcher>) = also {
         this.encodeValuesMatcher = elements.toMutableList()
     }
 
@@ -325,7 +325,7 @@ class AnnotationEncodeArrayMatcher : BaseQuery(), IAnnotationEncodeValue {
     @JvmOverloads
     fun addClass(
         className: String,
-        matchType: StringMatchType = StringMatchType.Contains,
+        matchType: StringMatchType = StringMatchType.Equals,
         ignoreCase: Boolean = false
     ) = also {
         add(AnnotationEncodeValueMatcher().apply {
@@ -357,18 +357,6 @@ class AnnotationEncodeArrayMatcher : BaseQuery(), IAnnotationEncodeValue {
      */
     fun addEnum(value: FieldMatcher) = also {
         add(AnnotationEncodeValueMatcher().apply { enumValue(value) })
-    }
-
-    /**
-     * Add a array matcher to the array to be matched.
-     * ----------------
-     * 向待匹配数组中添加一个已知的数组匹配器。
-     *
-     * @param value array matcher / 数组匹配器
-     * @return [AnnotationEncodeArrayMatcher]
-     */
-    fun addArray(value: AnnotationEncodeArrayMatcher) = also {
-        add(AnnotationEncodeValueMatcher().apply { arrayValue(value) })
     }
 
     /**
@@ -440,14 +428,6 @@ class AnnotationEncodeArrayMatcher : BaseQuery(), IAnnotationEncodeValue {
     @kotlin.internal.InlineOnly
     inline fun addEnum(init: FieldMatcher.() -> Unit) = also {
         addEnum(FieldMatcher().apply(init))
-    }
-
-    /**
-     * @see addArray
-     */
-    @kotlin.internal.InlineOnly
-    inline fun addArray(init: AnnotationEncodeArrayMatcher.() -> Unit) = also {
-        addArray(AnnotationEncodeArrayMatcher().apply(init))
     }
 
     /**

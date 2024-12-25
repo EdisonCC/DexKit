@@ -1,177 +1,286 @@
-# Usage Example
+# Usage Examples
 
-Let's look at the following example app:
+During the reading of this section, you may need to refer to
+the [Structural Quick Reference Table](./structural-zoom-table) for a better understanding.
+
+> You can get the source code and some test cases for the demo below.
+
+- APP Demo [Click to View](https://github.com/LuckyPray/DexKit/tree/master/demo)
+- APP Test Cases [Click to View](https://github.com/LuckyPray/DexKit/blob/master/dexkit/src/test/java/org/luckypray/dexkit/UnitTest.kt)
+
+## Demo App
+
+Here is a simple Demo Activity, PlayActivity, where the internal properties and methods are
+obfuscated, and they change in each version.
+
+> The four major components are not obfuscated by default. We assume this Activity is obfuscated.
 
 ```java
-package com.luckypray.dexkit.demo;
-// ...
+package org.luckypray.dexkit.demo;
 
-public class DemoActivity extends ComponentActivity {
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.HandlerThread;
+import android.util.Log;
+import android.view.View;
+import android.widget.Button;
+import android.widget.TextView;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.h;
+import java.util.Random;
+import org.luckypray.dexkit.demo.annotations.Router;
 
-    private final static String TAG = "DemoActivity";
+@Router(path = "/play")
+public class PlayActivity extends AppCompatActivity {
+    private static final String TAG = "PlayActivity";
+    private TextView a;
+    private Handler b;
 
-    private int mCount = 0;
-
-    @Override
-    protected void onCreate(@Nullable Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_demo);
-        Toast toast = new Toast(this);
-        toast.setText("Hello World");
-        toast.show();
-        mCount = sum(1, 2);
-    }
-
-    private int sum(int a, int b) {
-        int c =  a + b;
-        Log.i(TAG, "sum: " + c);
-        return c;
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-    }
-}
-```
-
-Now let's analyze what information is available:
-
-- String constants: `Hello World`, `DemoActivity`, `sum: `
-- Classes: `DemoActivity`, `Toast`, `AppCompatActivity`, `Log`, `Bundle`
-- Methods: `sum()`, `onCreate()`, `onDestroy()`, `setContentView()`, `setText()`, `show()`, `i()`, `new Toast()`
-- Fields: `mCount`, `TAG`
-
-Now let's try to use `DexKit` to find this.
-
-## Find classes use strings
-
-```kotlin
-DexKitBridge.create("demo.apk")?.use { bridge->
-    val deobfMap = mapOf(
-        "DemoActivity" to setOf("DemoActivity", "Hello World", "sum: "),
-        "NotFoundActivity" to setOf("DemoActivity", "Hello World", "sum: ", "not found"),
-    )
-    val result = bridge.batchFindClassesUsingStrings {
-        queryMap(deobfMap)
-        advancedMatch = MatchType.FULL
-    }
-    assert(result.size == 2)
-    result.forEach { (tagName, searchList) ->
-        println("$tagName -> [${searchList.joinToString(", ", "\"", "\"")}]")
-    }
-}
-```
-
-We get the following output:
-
-```text
-DemoActivity -> ["com.luckypray.dexkit.demo.DemoActivity"]
-NotFoundActivity -> []
-```
-
-## Find methods based on strings
-
-```kotlin
-DexKitBridge.create("demo.apk")?.use { bridge ->
-    listOf("^Hello", "^Hello World", "World$", "Hello World", "llo Wor").forEach { usingString ->
-        val result = bridge.findMethodUsingString {
-            usingString = usingString
-            matchType = MatchType.SIMILAR_REGEX
+    public void d(View view) {
+        Handler handler;
+        int i;
+        Log.d("PlayActivity", "onClick: rollButton");
+        float nextFloat = new Random().nextFloat();
+        if (nextFloat < 0.01d) {
+            handler = this.b;
+            i = -1;
+        } else if (nextFloat < 0.987f) {
+            handler = this.b;
+            i = 0;
+        } else {
+            handler = this.b;
+            i = 114514;
         }
-        assert(result.size == 1)
-        assert(result.first().descriptor == "Lcom/luckypray/dexkit/demo/DemoActivity;->onCreate(Landroid/os/Bundle;)V")
+        handler.sendEmptyMessage(i);
     }
-    println("all test pass")
+
+    public void e(boolean z) {
+        int i;
+        if (!z) {
+            i = RandomUtil.a();
+        } else {
+            i = 6;
+        }
+        String a = h.a("You rolled a ", i);
+        this.a.setText(a);
+        Log.d("PlayActivity", "rollDice: " + a);
+    }
+
+    protected void onCreate(Bundle bundle) {
+        super/*androidx.fragment.app.FragmentActivity*/.onCreate(bundle);
+        setContentView(0x7f0b001d);
+        Log.d("PlayActivity", "onCreate");
+        HandlerThread handlerThread = new HandlerThread("PlayActivity");
+        handlerThread.start();
+        this.b = new PlayActivity$1(this, handlerThread.getLooper());
+        this.a = (TextView) findViewById(0x7f080134);
+        ((Button) findViewById(0x7f08013a)).setOnClickListener(new a(this));
+    }
 }
 ```
 
-We get the following output:
+## Multiple Conditions Matching Class - Example Usage
 
-```text
-all test pass
-```
+In this scenario, we want to find the PlayActivity using the following code:
 
-## Find the method that sets `mCount`
+> This is just an example. In actual use, you don't need conditions as complex and comprehensive
+> as this. Use as needed.
 
 ```kotlin
-DexKitBridge.create("demo.apk")?.use { bridge ->
-    val result = bridge.findMethodUsingField {
-        this.fieldDeclareClass = "Lcom/luckypray/dexkit/demo/DemoActivity;"
-        this.fieldName = "mCount"
-        this.fieldType = "int"
-        this.usingType = FieldUsingType.PUT
-    }
-    assert(result.size == 1)
-    result.forEach { (method, fieldList) ->
-        println("method: $method ->")
-        fieldList.forEach { field ->
-            println("\t $field")
+private fun findPlayActivity(bridge: DexKitBridge) {
+    val classData = bridge.findClass {
+        // Search within the specified package name range
+        searchPackages("org.luckypray.dexkit.demo")
+        // Exclude the specified package name range
+        excludePackages("org.luckypray.dexkit.demo.annotations")
+        // ClassMatcher Matcher for classes
+        matcher {
+            // FieldsMatcher Matcher for fields in a class
+            fields {
+                // Add a matcher for the field
+                add {
+                    // Specify the modifiers of the field
+                    modifiers = Modifier.PRIVATE or Modifier.STATIC or Modifier.FINAL
+                    // Specify the type of the field
+                    type = "java.lang.String"
+                    // Specify the name of the field
+                    name = "TAG"
+                }
+                // Add a matcher for the field of the specified type
+                addForType("android.widget.TextView")
+                addForType("android.os.Handler")
+                // Specify the number of fields in the class
+                count = 3
+            }
+            // MethodsMatcher Matcher for methods in a class
+            methods {
+                // Add a matcher for the method
+                add {
+                    // Specify the modifiers of the method
+                    modifiers = Modifier.PROTECTED
+                    // Specify the name of the method
+                    name = "onCreate"
+                    // Specify the return type of the method
+                    returnType = "void"
+                    // Specify the parameter types of the method, if the parameter types are uncertain,
+                    // use null, and this method will implicitly declare the number of parameters
+                    paramTypes("android.os.Bundle")
+                    // Specify the strings used in the method
+                    usingStrings("onCreate")
+                }
+                add {
+                    paramTypes("android.view.View")
+                    // Specify the numbers used in the method, the type is Byte, Short, Int, Long, Float, Double
+                    usingNumbers(0.01, -1, 0.987, 0, 114514)
+                }
+                add {
+                    paramTypes("boolean")
+                    // Specify the methods called in the method list
+                    invokeMethods {
+                        add {
+                            modifiers = Modifier.PUBLIC or Modifier.STATIC
+                            returnType = "int"
+                            // Specify the strings used in the method called in the method,
+                            usingStrings(listOf("getRandomDice: "), StringMatchType.Equals)
+                        }
+                        // Only need to contain the call to the above method
+                        matchType = MatchType.Contains
+                    }
+                }
+                count(1..10)
+            }
+            // AnnotationsMatcher Matcher for annotations in a class
+            annotations {
+                // Add a matcher for the annotation
+                add {
+                    // Specify the type of the annotation
+                    type = "org.luckypray.dexkit.demo.annotations.Router"
+                    // The annotation needs to contain the specified element
+                    addElement {
+                        // Specify the name of the element
+                        name = "path"
+                        // Specify the value of the element
+                        stringValue("/play")
+                    }
+                }
+            }
+            // Strings used by all methods in the class
+            usingStrings("PlayActivity", "onClick", "onCreate")
         }
-    }
+    }.single()
+    println(classData.name)
 }
 ```
 
-We get the following output:
+The result is as follows:
 
 ```text
-caller method: Lcom/luckypray/dexkit/demo/DemoActivity;->onCreate(Landroid/os/Bundle;)V ->
-    Lcom/luckypray/dexkit/demo/DemoActivity;->mCount:I
+org.luckypray.dexkit.demo.PlayActivity
 ```
 
-## Find which methods are called by `onCreate`
+## Parent Class Condition Nesting
+
+if there is such a class, its only feature is that the ancestors are not obfuscated,
+and the middle parents are all obfuscated, we can also use `DexKit` to find it.
 
 ```kotlin
-DexKitBridge.create("demo.apk")?.use { bridge ->
-    val result = bridge.findMethodInvoking {
-        this.methodDescriptor = "Lcom/luckypray/dexkit/demo/DemoActivity;->onCreate(Landroid/os/Bundle;)V"
-    }
-    result.forEach { (methodName, invokingList)->
-        println("method descriptor: $methodName")
-        invokingList.forEach {
-            println("\t$it")
+private fun findActivity(bridge: DexKitBridge) {
+    bridge.findClass {
+        matcher { // ClassMatcher
+            // androidx.appcompat.app.AppCompatActivity
+            superClass { // ClassMatcher
+                // androidx.fragment.app.FragmentActivity
+                superClass { // ClassMatcher
+                    // androidx.activity.ComponentActivity
+                    superClass { // ClassMatcher
+                        // androidx.core.app.ComponentActivity
+                        superClass { // ClassMatcher
+                            superClass = "android.app.Activity"
+                        }
+                    }
+                }
+            }
         }
+    }.forEach {
+        // org.luckypray.dexkit.demo.MainActivity
+        // org.luckypray.dexkit.demo.PlayActivity
+        println(it.name)
     }
 }
 ```
 
-We get the following output:
+The result is as follows:
 
 ```text
-method descriptor: Lcom/luckypray/dexkit/demo/DemoActivity;->onCreate(Landroid/os/Bundle;)V
-    Landroidx/activity/ComponentActivity;->onCreate(Landroid/os/Bundle;)V
-    Landroidx/activity/ComponentActivity;->setContentView(I)V
-    Landroid/widget/Toast;-><init>(Landroid/content/Context;)V
-    Landroid/widget/Toast;->setText(Ljava/lang/CharSequence;)V
-    Landroid/widget/Toast;->show()V
-    Lcom/luckypray/dexkit/demo/DemoActivity;->sum(II)I
+org.luckypray.dexkit.demo.MainActivity
+org.luckypray.dexkit.demo.PlayActivity
 ```
 
-## Find which methods a method is called by
+::: tip
+In `DexKit`, any logical relationship can be used as a query condition
+:::
+
+## Fuzzy Parameter Matching
+
+If we need to find a method with an obfuscated parameter, we can use `null` to replace it,
+so that it can match any type of parameter.
 
 ```kotlin
-DexKitBridge.create("demo.apk")?.use { bridge ->
-    val result = bridge.findMethodCaller {
-        methodReturnType = "int"
-        methodParameterTypes = arrayOf("int", "I")
-        methodDeclareClass = "com.luckypray.dexkit.demo.DemoActivity"
-    }
-    result.forEach { (callerMethod, beInvokedList)->
-        println("caller method: $callerMethod")
-        beInvokedList.forEach {
-            println("\t$it")
+private fun findMethodWithFuzzyParam(bridge: DexKitBridge) {
+    bridge.findMethod {
+        matcher {
+            modifiers = Modifier.PUBLIC or Modifier.STATIC
+            returnType = "void"
+            // Specify the parameters of the method, if the parameters are uncertain, use null
+            paramTypes("android.view.View", null)
+            // paramCount = 2 // paramTypes length is 2, which has implicitly determined the number of parameters
+            usingStrings("onClick")
         }
+    }.single().let {
+        println(it)
     }
 }
 ```
 
-We get the following output:
+## Saving and Retrieving Query Results
 
-```text
-caller method: Lcom/luckypray/dexkit/demo/DemoActivity;->onCreate(Landroid/os/Bundle;)V
-    Lcom/luckypray/dexkit/demo/DemoActivity;->sum(II)I
+How can you serialize and save the results obtained from DexKit queries for later use?
+
+DexKit provides corresponding wrapper classes for Class, Method, and Field, namely `DexClass`, 
+`DexMethod`, and `DexField`. These wrapper classes inherit from the `ISerializable` interface, 
+allowing them to be freely converted to and from strings. For objects returned by queries, 
+you can directly use the `toDexClass()`, `toDexMethod()`, and `toDexField()` methods to convert 
+them into the respective wrapper classes.
+
+
+```kotlin
+private fun saveData(bridge: DexKitBridge) {
+    bridge.findMethod {
+        matcher {
+            modifiers = Modifier.PUBLIC or Modifier.STATIC
+            returnType = "void"
+            paramTypes("android.view.View", null)
+            usingStrings("onClick")
+        }
+    }.single().let {
+        val dexMethod = it.toDexMethod()
+        val serialize = dexMethod.serialize()
+        val sp = getSharedPreferences("dexkit", Context.MODE_PRIVATE)
+        sp.edit().putString("onClickMethod", serialize).apply()
+    }
+}
+
+private fun readData(): Method {
+    val sp = getSharedPreferences("dexkit", Context.MODE_PRIVATE)
+    val descriptor = sp.getString("onClickMethod", null)
+    if (descriptor != null) {
+        val dexMethod = DexMethod(descriptor)
+        // val dexMethod = DexMethod.deserialize(serialize)
+        // val dexMethod = ISerializable.deserialize(serialize) as DexMethod
+        // val dexMethod = ISerializable.deserializeAs<DexMethod>(serialize)
+        val method = dexMethod.getMethodInstance(hostClassLoader)
+        return method
+    }
+    error("No saved")
+}
 ```
-
-
-> All APIs can be found in the [API documentation](https://luckypray.org/DexKit-Doc/dexkit/io.luckypray.dexkit/-dex-kit-bridge/index.html),
-> where you can combine them to get the results you need.

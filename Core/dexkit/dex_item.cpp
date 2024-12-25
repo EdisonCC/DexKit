@@ -26,6 +26,8 @@
 
 namespace dexkit {
 
+inline void PushEncodeNumber(dex::InstructionFormat op_format, uint8_t op, const uint16_t *ptr, std::vector<EncodeNumber> *using_numbers);
+
 DexItem::DexItem(uint32_t id, uint8_t *data, size_t size, DexKit *dexkit) :
         _image(std::make_unique<MemMap>(data, size)),
         dexkit(dexkit),
@@ -195,7 +197,14 @@ void DexItem::InitBaseCache() {
 
         for (uint32_t i = 0, class_method_idx = 0; i < direct_methods_count; ++i) {
             class_method_idx += ReadULeb128(&class_data);
-            method_access_flags[class_method_idx] = ReadULeb128(&class_data);
+            uint32_t access_flags = ReadULeb128(&class_data);
+            // fix 'declared-synchronized' for java Modifiers
+            // Java's [declared-synchronized] and  JNI's [synchronized native].
+            // see https://source.android.com/docs/core/runtime/dex-format#access-flags
+            if (access_flags & dex::kAccDeclaredSynchronized) {
+                access_flags = access_flags ^ dex::kAccDeclaredSynchronized | dex::kAccSynchronized;
+            }
+            method_access_flags[class_method_idx] = access_flags;
             uint32_t code_off = ReadULeb128(&class_data);
             if (code_off) {
                 method_codes[class_method_idx] = reader.dataPtr<const dex::Code>(code_off);
@@ -204,13 +213,27 @@ void DexItem::InitBaseCache() {
         }
         for (uint32_t i = 0, class_method_idx = 0; i < virtual_methods_count; ++i) {
             class_method_idx += ReadULeb128(&class_data);
-            method_access_flags[class_method_idx] = ReadULeb128(&class_data);
+            uint32_t access_flags = ReadULeb128(&class_data);
+            // fix 'declared-synchronized' for java Modifiers
+            // Java's [declared-synchronized] and  JNI's [synchronized native].
+            // see https://source.android.com/docs/core/runtime/dex-format#access-flags
+            if (access_flags & dex::kAccDeclaredSynchronized) {
+                access_flags = access_flags ^ dex::kAccDeclaredSynchronized | dex::kAccSynchronized;
+            }
+            method_access_flags[class_method_idx] = access_flags;
             uint32_t code_off = ReadULeb128(&class_data);
             if (code_off) {
                 method_codes[class_method_idx] = reader.dataPtr<const dex::Code>(code_off);
             }
             methods.emplace_back(class_method_idx);
         }
+    }
+    auto method_idx = 0;
+    for (auto &method_def: reader.MethodIds()) {
+        if (!type_def_flag[method_def.class_idx]) {
+            class_method_ids[method_def.class_idx].emplace_back(method_idx);
+        }
+        ++method_idx;
     }
     {
         static std::mutex put_declare_class_mutex;
@@ -241,6 +264,7 @@ void DexItem::InitCache(uint32_t init_flags) {
     bool need_method_annotation = init_flags & kMethodAnnotation && (dex_flag & kMethodAnnotation) == 0;
     bool need_param_annotation = init_flags & kParamAnnotation && (dex_flag & kParamAnnotation) == 0;
     bool need_annotation = need_class_annotation || need_field_annotation || need_method_annotation || need_param_annotation;
+    // only used for full cache
     bool need_method_using_number = init_flags & kUsingNumber && (dex_flag & kUsingNumber) == 0;
 
     if (need_op_seq) {
@@ -268,6 +292,10 @@ void DexItem::InitCache(uint32_t init_flags) {
         field_put_method_ids.resize(reader.FieldIds().size());
         need_foreach_method = true;
     }
+    if (need_method_using_number) {
+        method_using_numbers.resize(reader.MethodIds().size());
+        need_foreach_method = true;
+    }
 
     if (need_foreach_method) {
         for (auto &class_def: reader.ClassDefs()) {
@@ -281,6 +309,7 @@ void DexItem::InitCache(uint32_t init_flags) {
                 std::vector<uint32_t> *method_using_string_ptr = nullptr;
                 std::vector<std::pair<uint32_t, bool>> *method_using_field_ptr = nullptr;
                 std::vector<uint32_t> *method_invoking_ptr = nullptr;
+                std::vector<EncodeNumber> *method_using_number_ptr = nullptr;
 
                 if (need_op_seq) {
                     op_seq_ptr = &method_opcode_seq[method_id];
@@ -295,13 +324,16 @@ void DexItem::InitCache(uint32_t init_flags) {
                 if (need_method_invoking) {
                     method_invoking_ptr = &method_invoking_ids[method_id];
                 }
+                if (need_method_using_number) {
+                    method_using_number_ptr = &method_using_numbers[method_id];
+                }
 
                 auto p = code->insns;
                 auto end_p = p + code->insns_size;
                 while (p < end_p) {
                     auto op = (uint8_t) *p;
                     if (need_op_seq) {
-                        op_seq_ptr->emplace(op);
+                        op_seq_ptr->value().emplace_back(op);
                     }
                     auto ptr = p;
                     auto width = GetBytecodeWidth(ptr++);
@@ -337,6 +369,11 @@ void DexItem::InitCache(uint32_t init_flags) {
                             method_invoking_ptr->emplace_back(index);
                         }
                     }
+
+                    if (need_method_using_number) {
+                        PushEncodeNumber(op_format, op, ptr, method_using_number_ptr);
+                    }
+
                     p += width;
                 }
             }
@@ -427,12 +464,12 @@ void DexItem::InitCache(uint32_t init_flags) {
 }
 
 bool DexItem::NeedPutCrossRef(uint32_t need_cross_flag) const {
-    DEXKIT_CHECK(((dex_cross_flag | kCallerMethod | kRwFieldMethod) ^ (kCallerMethod | kRwFieldMethod)) == 0);
+    DEXKIT_CHECK((need_cross_flag & ~(kCallerMethod | kRwFieldMethod)) == 0);
     return (dex_cross_flag & need_cross_flag) != need_cross_flag;
 }
 
 void DexItem::PutCrossRef(uint32_t put_cross_flag) {
-    DEXKIT_CHECK(((put_cross_flag | kCallerMethod | kRwFieldMethod) ^ (kCallerMethod | kRwFieldMethod)) == 0);
+    DEXKIT_CHECK((put_cross_flag & ~(kCallerMethod | kRwFieldMethod)) == 0);
     if ((dex_cross_flag & put_cross_flag) == put_cross_flag) {
         return;
     }
@@ -688,19 +725,18 @@ DexItem::GetClassAnnotationBeans(uint32_t class_idx) {
                              : std::vector<ir::Annotation *>();
         std::vector<AnnotationBean> beans;
         for (auto annotation: annotationSet) {
-            if (annotation->visibility == 2) {
-                continue;
-            }
             AnnotationBean bean = GetAnnotationBean(annotation);
             beans.emplace_back(std::move(bean));
         }
         return beans;
     }
-    auto annotationSet = this->class_annotations[class_idx];
     std::vector<AnnotationBean> beans;
-    for (auto annotation: annotationSet->annotations) {
-        AnnotationBean bean = GetAnnotationBean(annotation);
-        beans.emplace_back(std::move(bean));
+    auto annotationSet = this->class_annotations[class_idx];
+    if (annotationSet) {
+        for (auto annotation: annotationSet->annotations) {
+            AnnotationBean bean = GetAnnotationBean(annotation);
+            beans.emplace_back(std::move(bean));
+        }
     }
     return beans;
 }
@@ -722,9 +758,6 @@ DexItem::GetMethodAnnotationBeans(uint32_t method_idx) {
                                  : std::vector<ir::Annotation *>();
             std::vector<AnnotationBean> beans;
             for (auto annotation: annotationSet) {
-                if (annotation->visibility == 2) {
-                    continue;
-                }
                 AnnotationBean bean = GetAnnotationBean(annotation);
                 beans.emplace_back(std::move(bean));
             }
@@ -733,6 +766,9 @@ DexItem::GetMethodAnnotationBeans(uint32_t method_idx) {
         return {};
     }
     auto annotationSet = this->method_annotations[method_idx];
+    if (annotationSet == nullptr) {
+        return {};
+    }
     std::vector<AnnotationBean> beans;
     for (auto annotation: annotationSet->annotations) {
         AnnotationBean bean = GetAnnotationBean(annotation);
@@ -758,9 +794,6 @@ DexItem::GetFieldAnnotationBeans(uint32_t field_idx) {
                                  : std::vector<ir::Annotation *>();
             std::vector<AnnotationBean> beans;
             for (auto annotation: annotationSet) {
-                if (annotation->visibility == 2) {
-                    continue;
-                }
                 AnnotationBean bean = GetAnnotationBean(annotation);
                 beans.emplace_back(std::move(bean));
             }
@@ -769,6 +802,9 @@ DexItem::GetFieldAnnotationBeans(uint32_t field_idx) {
         return {};
     }
     auto annotationSet = this->field_annotations[field_idx];
+    if (annotationSet == nullptr) {
+        return {};
+    }
     std::vector<AnnotationBean> beans;
     for (auto annotation: annotationSet->annotations) {
         AnnotationBean bean = GetAnnotationBean(annotation);
@@ -779,13 +815,48 @@ DexItem::GetFieldAnnotationBeans(uint32_t field_idx) {
 
 std::vector<std::vector<AnnotationBean>>
 DexItem::GetParameterAnnotationBeans(uint32_t method_idx) {
-    auto param_annotations = this->method_parameter_annotations[method_idx];
+    if (method_parameter_annotations.empty()) {
+        auto method_def = reader.MethodIds()[method_idx];
+        auto class_def = reader.ClassDefs()[type_def_idx[method_def.class_idx]];
+        auto annotationsDirectory = reader.ExtractAnnotations(class_def.annotations_off);
+        if (!annotationsDirectory) return {};
+        std::vector<std::vector<AnnotationBean>> beans;
+        for (auto params_ann_ptr: annotationsDirectory->param_annotations) {
+            auto method_decl = params_ann_ptr->method_decl;
+            if (method_decl->orig_index != method_idx) {
+                continue;
+            }
+            if (params_ann_ptr->annotations == nullptr) {
+                return {};
+            }
+            for (auto ann_ptr : params_ann_ptr->annotations->annotations) {
+                auto annotationSet = ann_ptr
+                                     ? ann_ptr->annotations
+                                     : std::vector<ir::Annotation *>();
+
+                std::vector<AnnotationBean> annotationBeans;
+                for (auto annotation: annotationSet) {
+                    AnnotationBean bean = GetAnnotationBean(annotation);
+                    annotationBeans.emplace_back(std::move(bean));
+                }
+                beans.emplace_back(std::move(annotationBeans));
+            }
+            return beans;
+        }
+        return {};
+    }
     std::vector<std::vector<AnnotationBean>> beans;
-    for (auto &annotationSet: param_annotations) {
+    auto param_annotations = this->method_parameter_annotations[method_idx];
+    if (param_annotations.empty()) {
+        return {};
+    }
+    for (auto annotationSet: param_annotations) {
         std::vector<AnnotationBean> annotationBeans;
-        for (auto annotation: annotationSet->annotations) {
-            AnnotationBean bean = GetAnnotationBean(annotation);
-            annotationBeans.emplace_back(std::move(bean));
+        if (annotationSet) {
+            for (auto annotation: annotationSet->annotations) {
+                AnnotationBean bean = GetAnnotationBean(annotation);
+                annotationBeans.emplace_back(std::move(bean));
+            }
         }
         beans.emplace_back(std::move(annotationBeans));
     }
@@ -867,6 +938,18 @@ std::vector<std::string_view> DexItem::GetUsingStrings(uint32_t method_idx) {
         }
     }
     return using_strings;
+}
+
+std::vector<UsingFieldBean> DexItem::GetUsingFields(uint32_t method_idx) {
+    auto &method_using_fields = this->method_using_field_ids[method_idx];
+    std::vector<UsingFieldBean> using_fields;
+    for (auto [method_id, is_getting]: method_using_fields) {
+        UsingFieldBean bean;
+        bean.field = GetFieldBean(method_id);
+        bean.is_getting = is_getting;
+        using_fields.emplace_back(bean);
+    }
+    return using_fields;
 }
 
 std::vector<MethodBean> DexItem::FieldGetMethods(uint32_t field_idx) {
@@ -1002,7 +1085,59 @@ std::vector<uint32_t> DexItem::GetInvokeMethodsFromCode(uint32_t method_idx) {
     return std::move(invoke_methods);
 }
 
-std::vector<EncodeNumber> DexItem::GetUsingNumberFromCode(uint32_t method_idx) {
+void PushEncodeNumber(dex::InstructionFormat op_format, uint8_t op, const uint16_t *ptr, std::vector<EncodeNumber> *using_numbers) {
+    switch (op_format) {
+        // using number
+        case dex::k11n: { // const/4
+            uint8_t value = *(ptr - 1) >> 12;
+            if (value & 0x8) {
+                value |= 0xf0;
+            }
+            using_numbers->emplace_back(EncodeNumber{.type = BYTE, .value = {.L8 = (int8_t) value}});
+            break;
+        }
+        case dex::k21s: { // const/16, const-wide/16
+            uint16_t value = *ptr;
+            if (value & 0x8000) {
+                value |= 0xffff0000;
+            }
+            using_numbers->emplace_back(EncodeNumber{.type = SHORT, .value = {.L16 = (int16_t) value}});
+            break;
+        }
+        case dex::k21h: { // const/high16, const-wide/high16
+            if (op == 0x15) {
+                using_numbers->emplace_back(EncodeNumber{.type = FLOAT, .value = {.L32 = {.int_value = (int32_t) (*ptr << 16)}}});
+            } else { // 0x19
+                using_numbers->emplace_back(EncodeNumber{.type = DOUBLE, .value = {.L64 = {.long_value = (int64_t) (((uint64_t) *ptr) << 48)}}});
+            }
+            break;
+        }
+        case dex::k31i: { // const, const-wide/32
+            if (op == 0x14) {
+                using_numbers->emplace_back(EncodeNumber{.type = FLOAT, .value = {.L32 = {.int_value = (int32_t) ReadInt(ptr)}}});
+            } else { // 0x17
+                using_numbers->emplace_back(EncodeNumber{.type = INT, .value = {.L32 = {.int_value = (int32_t) ReadInt(ptr)}}});
+            }
+            break;
+        }
+        case dex::k51l: // const-wide
+            using_numbers->emplace_back(EncodeNumber{.type = LONG, .value = {.L64 = {.long_value = (int64_t) ReadLong(ptr)}}});
+            break;
+        case dex::k22s: // binop/lit16
+            using_numbers->emplace_back(EncodeNumber{.type = SHORT, .value = {.L16 = (int16_t) *ptr}});
+            break;
+        case dex::k22b: // binop/lit8
+            using_numbers->emplace_back(EncodeNumber{.type = BYTE, .value = {.L8 = (int8_t) (*ptr >> 8)}});
+            break;
+        default:
+            break;
+    }
+}
+
+std::vector<EncodeNumber> DexItem::GetUsingNumbersFromCode(uint32_t method_idx) {
+    if (dex_flag & kUsingNumber) {
+        return method_using_numbers[method_idx];
+    }
     auto code = method_codes[method_idx];
     if (code == nullptr) {
         return {};
@@ -1015,52 +1150,7 @@ std::vector<EncodeNumber> DexItem::GetUsingNumberFromCode(uint32_t method_idx) {
         auto ptr = p;
         auto width = GetBytecodeWidth(ptr++);
         auto op_format = ins_formats[op];
-        switch (op_format) {
-            // using number
-            case dex::k11n: { // const/4
-                uint8_t value = *(ptr - 1) >> 12;
-                if (value & 0x8) {
-                    value |= 0xf0;
-                }
-                using_numbers.emplace_back(EncodeNumber{.type = BYTE, .value = {.L8 = (int8_t) value}});
-                break;
-            }
-            case dex::k21s: { // const/16, const-wide/16
-                uint16_t value = *ptr;
-                if (value & 0x8000) {
-                    value |= 0xffff0000;
-                }
-                using_numbers.emplace_back(EncodeNumber{.type = SHORT, .value = {.L16 = (int16_t) value}});
-                break;
-            }
-            case dex::k21h: { // const/high16, const-wide/high16
-                if (op == 0x15) {
-                    using_numbers.emplace_back(EncodeNumber{.type = FLOAT, .value = {.L32 = {.int_value = (int32_t) (*ptr << 16)}}});
-                } else { // 0x19
-                    using_numbers.emplace_back(EncodeNumber{.type = DOUBLE, .value = {.L64 = {.long_value = (int64_t) (((uint64_t) *ptr) << 48)}}});
-                }
-                break;
-            }
-            case dex::k31i: { // const, const-wide/32
-                if (op == 0x14) {
-                    using_numbers.emplace_back(EncodeNumber{.type = FLOAT, .value = {.L32 = {.int_value = (int32_t) ReadInt(ptr)}}});
-                } else { // 0x17
-                    using_numbers.emplace_back(EncodeNumber{.type = INT, .value = {.L32 = {.int_value = (int32_t) ReadInt(ptr)}}});
-                }
-                break;
-            }
-            case dex::k51l: // const-wide
-                using_numbers.emplace_back(EncodeNumber{.type = LONG, .value = {.L64 = {.long_value = (int64_t) ReadLong(ptr)}}});
-                break;
-            case dex::k22s: // binop/lit16
-                using_numbers.emplace_back(EncodeNumber{.type = SHORT, .value = {.L16 = (int16_t) *ptr}});
-                break;
-            case dex::k22b: // binop/lit8
-                using_numbers.emplace_back(EncodeNumber{.type = BYTE, .value = {.L8 = (int8_t) (*ptr >> 8)}});
-                break;
-            default:
-                break;
-        }
+        PushEncodeNumber(op_format, op, ptr, &using_numbers);
         p += width;
     }
     return std::move(using_numbers);

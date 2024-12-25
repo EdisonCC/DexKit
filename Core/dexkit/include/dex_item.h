@@ -26,7 +26,7 @@
 #include "beans.h"
 #include "common.h"
 #include "constant.h"
-#include "error.h"
+#include "dexkit_error.h"
 #include "string_match.h"
 
 #include "parallel_hashmap/phmap.h"
@@ -172,6 +172,7 @@ public:
     std::vector<MethodBean> GetCallMethods(uint32_t method_idx);
     std::vector<MethodBean> GetInvokeMethods(uint32_t method_idx);
     std::vector<std::string_view> GetUsingStrings(uint32_t method_idx);
+    std::vector<UsingFieldBean> GetUsingFields(uint32_t method_idx);
     std::vector<MethodBean> FieldGetMethods(uint32_t field_idx);
     std::vector<MethodBean> FieldPutMethods(uint32_t field_idx);
 
@@ -192,7 +193,7 @@ private:
     std::vector<uint8_t> GetOpSeqFromCode(uint32_t method_idx);
     std::vector<uint32_t> GetUsingStringsFromCode(uint32_t method_idx);
     std::vector<uint32_t> GetInvokeMethodsFromCode(uint32_t method_idx);
-    std::vector<EncodeNumber> GetUsingNumberFromCode(uint32_t method_idx);
+    std::vector<EncodeNumber> GetUsingNumbersFromCode(uint32_t method_idx);
 
     static bool IsStringMatched(std::string_view str, const schema::StringMatcher *matcher);
     static bool IsAccessFlagsMatched(uint32_t access_flags, const schema::AccessFlagsMatcher *matcher);
@@ -203,6 +204,7 @@ private:
     );
 
     bool IsAnnotationMatched(const ir::Annotation *annotation, const schema::AnnotationMatcher *matcher);
+    bool IsAnnotationUsingStringsMatched(const ir::Annotation *annotation, const schema::AnnotationMatcher *matcher);
     bool IsAnnotationsMatched(const ir::AnnotationSet *annotationSet, const schema::AnnotationsMatcher *matcher);
     bool IsAnnotationEncodeValueMatched(const ir::EncodedValue *encodedValue, schema::AnnotationEncodeValueMatcher type, const void *value);
     bool IsAnnotationEncodeArrayMatcher(const std::vector<ir::EncodedValue *> &encodedValues, const dexkit::schema::AnnotationEncodeArrayMatcher *matcher);
@@ -284,7 +286,7 @@ private:
     std::vector<std::optional<std::pair<uint16_t, uint32_t>>> method_cross_info;
     std::vector<std::optional<std::pair<uint16_t, uint32_t>>> field_cross_info;
 
-    std::vector<std::vector<EncodeNumber /*using_number*/>> method_using_number;
+    std::vector<std::vector<EncodeNumber /*using_number*/>> method_using_numbers;
     std::vector<std::vector<uint32_t /*using_string*/>> method_using_string_ids;
     std::vector<std::vector<uint32_t /*invoke_method_id*/>> method_invoking_ids;
     std::vector<std::vector<std::pair<uint32_t /*method_id*/, bool /*is_getting*/>>> method_using_field_ids;
